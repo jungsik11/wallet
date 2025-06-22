@@ -1,2 +1,5 @@
 .venv/
 test/
+frontend/
+/api/__pycache__/
+no_use/
