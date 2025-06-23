@@ -3,7 +3,8 @@ from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
 from datetime import datetime, date
 import pandas as pd
-import os
+from json import loads, dumps
+import os, copy
 from decimal import Decimal
 from dotenv import load_dotenv
 from pykis import PyKis, KisDailyOrders
@@ -48,44 +49,77 @@ class ProfitResponse(BaseModel):
     profit: float
     stocks: List[Dict[str, StockHolding]]
 
-@app.get("/calculate_profit", response_model=ProfitResponse)
-async def calculate_profit(
-    start_date: str = Query(..., description="Start date in YYYY-MM-DD format"),
-    end_date: str = Query(..., description="End date in YYYY-MM-DD format"),
+
+class ValuationProfitResponse(BaseModel):
+    stocks: List[Dict[str, Dict[str, Any]]]
+
+    
+
+def get_history(country):
+    # Get account
+    account = kis.account()
+
+    # Get daily orders
+    daily_orders: KisDailyOrders = account.daily_orders(
+        start=datetime.strptime('2021-01-01', '%Y-%m-%d').date(),
+        end=datetime.today().date(),#datetime.strptime(datetime.today.date(), '%Y-%m-%d').date(), 
+        country=country
+    )
+
+    # Process orders
+    order_set = []
+    for order in daily_orders.orders:
+        if order.executed_qty != 0:
+            a = order.price * order.executed_qty
+            q = order.executed_qty
+            if order.type == 'sell': 
+                q = -q
+            else:
+                a = -a
+            o = {
+                'date': order.time.strftime('%Y-%m-%d'),
+                'time': order.time.strftime('%H:%M:%S'),
+                'ticker': order.symbol,
+                'order_type': order.type,
+                'currency': order.currency,
+                'price': float(order.price),
+                'quantity': float(q),
+                'amount': float(a),
+                'fee': float(order.executed_amount) * -0.0025      
+            }
+            order_set.append(o)
+
+    return order_set
+
+@app.get("/valuation_profit", response_model=ValuationProfitResponse)
+async def valuation_profit(
     country: str = Query("US", description="Country code")
 ):
     try:
-        # Get account
-        account = kis.account()
+        order_set = get_history(country)
+        # Convert to DataFrame
+        df = pd.DataFrame(order_set).sort_values(by=['date', 'time'])
+        df1 = df.groupby('ticker').agg( {'quantity': 'sum', 'amount': 'sum', 'fee': 'sum'})
+        df1 = df1.query('quantity != 0')
+        df1 = df1.astype({'quantity': 'float', 'amount': 'float'})
+        df1['avg_price'] = (-(df1['amount']+df1['fee'])/ df1['quantity']).apply(lambda x: round(x, 2))
+        del df1['amount'], df1['fee']
+        stocks = loads(df1.to_json(orient='index'))
+        stocks = [{i:stocks[i]} for i in stocks.keys()]
+
+        return {'stocks':stocks}
         
-        # Get daily orders
-        daily_orders: KisDailyOrders = account.daily_orders(
-            start=datetime.strptime(start_date, '%Y-%m-%d').date(),
-            end=datetime.strptime(end_date, '%Y-%m-%d').date(), 
-            country=country
-        )
-        # Process orders
-        order_set = []
-        for order in daily_orders.orders:
-            if order.executed_qty != 0:
-                a = order.price * order.executed_qty
-                q = order.executed_qty
-                if order.type == 'sell': 
-                    q = -q
-                else:
-                    a = -a
-                o = {
-                    'date': order.time.strftime('%Y-%m-%d'),
-                    'time': order.time.strftime('%H:%M:%S'),
-                    'ticker': order.symbol,
-                    'order_type': order.type,
-                    'currency': order.currency,
-                    'price': float(order.price),
-                    'quantity': float(q),
-                    'amount': float(a),
-                    'fee': float(order.executed_amount) * -0.0025      
-                }
-                order_set.append(o)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    
+
+@app.get("/calculate_profit", response_model=ProfitResponse)
+async def calculate_profit(
+    country: str = Query("US", description="Country code")
+):
+    try:
+        order_set = get_history(country)
+        
         
         # Convert to DataFrame
         df = pd.DataFrame(order_set).sort_values(by=['date', 'time'])
