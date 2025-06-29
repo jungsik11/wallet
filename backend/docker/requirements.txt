@@ -15,7 +15,7 @@ decorator==5.2.1
 executing==2.2.0
 fastapi
 psycopg2-binary
-python-dotenv==0.115.13
+python-dotenv
 h11==0.16.0
 idna==3.10
 ipykernel==6.29.5

@@ -6,7 +6,7 @@ import pandas as pd
 from json import loads, dumps
 import os, copy
 from decimal import Decimal
-from dotenv import load_dotenv
+# from dotenv import load_dotenv
 from pykis import PyKis, KisDailyOrders
 import time
 import psycopg2
@@ -16,7 +16,7 @@ from psycopg2.pool import SimpleConnectionPool
 app = FastAPI(title="Profit Calculation API")
 
 # Load environment variables
-load_dotenv()
+# load_dotenv()
 
 # Initialize PyKis client
 kis = PyKis(
@@ -252,17 +252,115 @@ async def calculate_profit(
         
         return final_response
         
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"{country}_trade_history.csv not found.")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"Error in calculate_profit for {country}: {e}")
+        raise HTTPException(status_code=500, detail=f"An error occurred while calculating profit: {e}")
 
-@app.get("/account_balance")
-async def get_account_balance():
+@app.get("/balance")
+def get_balance():
     try:
         account = kis.account()
-        balance = account.balance()
-        return {"balance": repr(balance)}
+        balance_list = account.balance().stocks
+
+        us_holdings = []
+        kr_holdings = []
+
+        for holding in balance_list:
+            # Check if the holding is overseas or domestic
+
+            # Domestic stocks have a 6-digit numeric symbol
+            if holding.symbol.isdigit() and len(holding.symbol) == 6:
+                kr_holdings.append({
+                    "ticker": holding.symbol,                   
+                    "quantity": int(holding.qty),
+                    "avg_price": float(holding.amount/holding.qty),
+                    "current_price": float(holding.price),
+                    "pnl": float(holding.profit),
+                })
+            else:
+                us_holdings.append({
+                    "ticker": holding.symbol,                   
+                    "quantity": int(holding.qty),
+                    "avg_price": float(holding.amount/holding.qty),
+                    "current_price": float(holding.price),
+                    "pnl": float(holding.profit),
+                })
+            
+        return {"US": us_holdings, "KR": kr_holdings}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"Error in /balance: {e}")
+        raise HTTPException(status_code=500, detail=f"An error occurred while fetching account balance: {e}")
+
+@app.get("/portfolio_summary")
+def get_portfolio_summary():
+    try:
+        balance = kis.account().balance()
+
+        krw_deposit = balance.deposits.get('KRW').amount if balance.deposits.get('KRW') else 0
+        usd_deposit = balance.deposits.get('USD').amount if balance.deposits.get('USD') else 0
+        exchange_rate = balance.deposits.get('USD').exchange_rate if balance.deposits.get('USD') else 1.0
+
+        total_assets_krw = krw_deposit + (usd_deposit * exchange_rate)
+        pie_chart_data = [
+            {"asset": "KRW 예수금", "value_krw": float(krw_deposit)},
+            {"asset": "USD 예수금", "value_krw": float(usd_deposit * exchange_rate)}
+        ]
+
+        for stock in balance.stocks:
+            stock_value = stock.price * stock.qty
+            # Domestic stocks are already in KRW
+            is_domestic = stock.symbol.isdigit() and len(stock.symbol) == 6
+            stock_value_krw = stock_value if is_domestic else stock_value * exchange_rate
+            
+            total_assets_krw += stock_value_krw
+            pie_chart_data.append({
+                "asset": stock.symbol,
+                "value_krw": float(stock_value_krw)
+            })
+
+        return {
+            "total_assets_krw": float(total_assets_krw),
+            "krw_deposit": float(krw_deposit),
+            "usd_deposit": float(usd_deposit),
+            "exchange_rate": float(exchange_rate),
+            "pie_chart_data": pie_chart_data
+        }
+
+    except Exception as e:
+        print(f"Error in /portfolio_summary: {e}")
+        raise HTTPException(status_code=500, detail=f"An error occurred: {e}")
+
+@app.get("/ohlcv/{ticker}")
+def get_ohlcv(ticker: str, timeframe: str = "1d"):
+    try:
+        if timeframe == '1m':
+            # Fetch 1-minute data for the last few hours
+            chart = kis.stock(ticker).chart(period=1) 
+        elif timeframe == '1h':
+            # Fetch 1-hour data
+            chart = kis.stock(ticker).chart("1d", period='h')
+        else: # Default to '1d'
+            # Fetch daily data for the last 90 days
+            chart = kis.stock(ticker).chart("3M")
+        
+        # Convert Kis...ChartBar objects to a list of dictionaries
+        chart_data = [
+            {
+                "time": bar.time.isoformat(),
+                "open": bar.open,
+                "high": bar.high,
+                "low": bar.low,
+                "close": bar.close,
+                "volume": bar.volume
+            }
+            for bar in chart.bars
+        ]
+        return chart_data
+    except Exception as e:
+        print(f"Error fetching OHLCV for {ticker} with timeframe {timeframe}: {e}")
+        raise HTTPException(status_code=500, detail=f"Could not fetch chart data for {ticker}: {e}")
 
 
 @app.get("/current_price/{country}/{ticker}")
@@ -325,6 +423,7 @@ async def shutdown_event():
 
 @app.post("/chat", response_model=ChatMessageResponse)
 async def create_chat_message(chat_message: ChatMessageCreate):
+    print(f"Received chat message: {chat_message.dict()}")
     pool = get_db_pool()
     conn = None
     try:
@@ -339,7 +438,9 @@ async def create_chat_message(chat_message: ChatMessageCreate):
                 (chat_message.sender, chat_message.message, chat_message.model_name)
             )
             new_message = cur.fetchone()
+            print(f"Inserted new message with ID: {new_message[0]}")
             conn.commit()
+            print("Commit successful.")
             return ChatMessageResponse(
                 id=new_message[0],
                 sender=new_message[1],
@@ -348,6 +449,7 @@ async def create_chat_message(chat_message: ChatMessageCreate):
                 created_at=new_message[4]
             )
     except Exception as e:
+        print(f"Database error occurred: {e}")
         if conn:
             conn.rollback()
         raise HTTPException(status_code=500, detail=f"Database error: {e}")
@@ -379,6 +481,38 @@ async def get_chat_history():
         if conn:
             pool.putconn(conn)
 
+class TickersRequest(BaseModel):
+    country: str
+    tickers: List[str]
+
+@app.post("/current_prices")
+async def get_current_prices_batch(request: TickersRequest):
+    prices = {}
+    for ticker in request.tickers:
+        retries = 3
+        while retries > 0:
+            try:
+                price = kis.stock(ticker).quote().price
+                prices[ticker] = float(price)
+                time.sleep(0.3) # Respect API limits
+                break # Success, exit while loop
+            except Exception as e:
+                error_message = str(e)
+                print(f"Error for {ticker}: {error_message}")
+                if '호출 횟수' in error_message: # Rate limit error
+                    print(f"Rate limit hit for {ticker}. Retrying...")
+                    retries -= 1
+                    time.sleep(1) # Wait longer before retrying
+                else: # Other errors (e.g., invalid ticker)
+                    prices[ticker] = 0.0
+                    break # Don't retry for this ticker
+        if retries == 0:
+            print(f"Failed to fetch price for {ticker} after multiple retries.")
+            prices[ticker] = 0.0
+
+    return prices
+
 #if __name__ == "__main__":
+
     #import uvicorn
     #uvicorn.run(app, host="0.0.0.0", port=8000)

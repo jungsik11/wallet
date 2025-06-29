@@ -24,15 +24,6 @@ class _Message {
     required this.createdAt,
   });
 
-  factory _Message.fromJson(Map<String, dynamic> json) {
-    return _Message(
-      id: json['id'],
-      text: json['message'],
-      sender: json['sender'],
-      modelName: json['model_name'],
-      createdAt: DateTime.parse(json['created_at']),
-    );
-  }
 }
 
 class _ChatbotScreenState extends State<ChatbotScreen> {
@@ -48,54 +39,27 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
   @override
   void initState() {
     super.initState();
-    _loadMessages();
+    // Do not load previous messages. Start with a fresh screen and a greeting.
+    _messages.add(_Message(
+      id: 0,
+      text: '안녕하세요! 무엇을 도와드릴까요?',
+      sender: 'ai',
+      createdAt: DateTime.now(),
+      modelName: 'greeting'
+    ));
     _fetchModels();
   }
 
-  Future<void> _loadMessages() async {
-    try {
-      final response = await http.get(Uri.parse('$_apiUrl/chat'));
-      if (response.statusCode == 200) {
-        final List<dynamic> data = jsonDecode(utf8.decode(response.bodyBytes));
-        setState(() {
-          _messages.addAll(data.map((m) => _Message.fromJson(m)).toList());
-        });
-        if (_messages.isEmpty) {
-          _postInitialMessage();
-        }
-      } else {
-        _showError('Failed to load chat history.');
-      }
-    } catch (e) {
-      _showError('Error loading messages: $e');
-    }
-    _scrollToBottom();
-  }
-
-  Future<void> _postInitialMessage() async {
-    final initialMessage = {
-      'sender': 'ai',
-      'message': '안녕하세요! 무엇을 도와드릴까요?',
-      'model_name': 'initial'
-    };
-    await _postMessageToServer(initialMessage, isInitial: true);
-  }
-
-  Future<void> _postMessageToServer(Map<String, dynamic> messageData, {bool isInitial = false}) async {
+  // Saves a message to the backend.
+  Future<void> _postMessageToServer(Map<String, dynamic> messageData) async {
     try {
       final response = await http.post(
         Uri.parse('$_apiUrl/chat'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode(messageData),
       );
-      if (response.statusCode == 200) {
-        if (isInitial) {
-          setState(() {
-            _messages.add(_Message.fromJson(jsonDecode(utf8.decode(response.bodyBytes))));
-          });
-        }
-      } else {
-         _showError('Failed to save message.');
+      if (response.statusCode != 200) {
+         _showError('Failed to save message: ${response.reasonPhrase}');
       }
     } catch (e) {
       _showError('Error saving message: $e');
@@ -174,7 +138,7 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
       request.headers['Content-Type'] = 'application/json';
       request.body = jsonEncode({
         'model': _selectedModel,
-        'prompt': "다음 질문에 대해 요점만 간략하게 한국어로만 대답해: $userMessageText",
+        'prompt': "You are a helpful assistant. Answer the following question in Korean. Be concise and to the point. Question: $userMessageText",
         'stream': true,
         'options': {'num_predict': 512}
       });
@@ -195,6 +159,7 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
                   _scrollToBottom();
                 }
                 if (jsonResponse['done'] == true) {
+                  // Stream is done, save the final message
                   final aiMessageData = {
                     'sender': 'ai',
                     'message': accumulatedResponse,
@@ -207,15 +172,16 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
             }
           },
           onDone: () {
-             if (_isLoading) {
-                final aiMessageData = {
-                    'sender': 'ai',
-                    'message': accumulatedResponse,
-                    'model_name': _selectedModel
-                  };
-                  _postMessageToServer(aiMessageData);
-                  setState(() => _isLoading = false);
-             }
+            // Ensure the final message is saved if the stream closes unexpectedly
+            if (_isLoading) {
+              final aiMessageData = {
+                'sender': 'ai',
+                'message': accumulatedResponse,
+                'model_name': _selectedModel
+              };
+              _postMessageToServer(aiMessageData);
+              setState(() => _isLoading = false);
+            }
           },
           onError: (e) => _showError('Stream error: $e'),
         );
@@ -239,12 +205,13 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return Scaffold(
+      backgroundColor: theme.scaffoldBackgroundColor,
       body: Column(
         children: [
-          // ... (UI code remains largely the same)
           Padding(
-            padding: const EdgeInsets.only(left: 16.0, right: 8.0),
+            padding: const EdgeInsets.fromLTRB(16.0, 8.0, 8.0, 8.0),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -252,16 +219,22 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
                     ? const SizedBox(height: 24, width: 24, child: CircularProgressIndicator(strokeWidth: 2.0))
                     : DropdownButton<String>(
                         value: _selectedModel,
-                        hint: const Text('Select Model'),
+                        hint: const Text('Select Model', style: TextStyle(color: Colors.white70)),
+                        dropdownColor: Colors.grey[800],
                         items: _models.map((String model) {
                           return DropdownMenuItem<String>(
                             value: model,
-                            child: Text(model.length > 20 ? '${model.substring(0, 17)}...' : model, overflow: TextOverflow.ellipsis),
+                            child: Text(
+                              model.length > 20 ? '${model.substring(0, 17)}...' : model,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(color: Colors.white),
+                            ),
                           );
                         }).toList(),
                         onChanged: (String? newValue) => setState(() => _selectedModel = newValue),
+                        underline: Container(),
                       ),
-                IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.of(context).pop()),
+                IconButton(icon: const Icon(Icons.close, color: Colors.white70), onPressed: () => Navigator.of(context).pop()),
               ],
             ),
           ),
@@ -272,23 +245,27 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
               itemCount: _messages.length,
               itemBuilder: (context, index) {
                 final message = _messages[index];
+                final isUser = message.sender == 'user';
                 return Align(
-                  alignment: message.sender == 'user' ? Alignment.centerRight : Alignment.centerLeft,
+                  alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
                   child: Container(
-                    margin: const EdgeInsets.symmetric(vertical: 4.0),
-                    padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
+                    margin: const EdgeInsets.symmetric(vertical: 5.0, horizontal: 8.0),
+                    padding: const EdgeInsets.symmetric(horizontal: 14.0, vertical: 10.0),
                     decoration: BoxDecoration(
-                      color: message.sender == 'user' ? Colors.blue[100] : Colors.grey[300],
-                      borderRadius: BorderRadius.circular(16.0),
+                      color: isUser ? theme.colorScheme.secondary.withOpacity(0.8) : theme.cardColor,
+                      borderRadius: BorderRadius.circular(20.0),
                     ),
                     child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                      crossAxisAlignment: isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
                       children: [
-                        Text(message.text),
-                        if (message.modelName != null)
+                        Text(message.text, style: theme.textTheme.bodyLarge),
+                        if (message.modelName != null && message.modelName != 'greeting')
                           Padding(
-                            padding: const EdgeInsets.only(top: 4.0),
-                            child: Text('Model: ${message.modelName}', style: const TextStyle(fontSize: 10, color: Colors.grey)),
+                            padding: const EdgeInsets.only(top: 5.0),
+                            child: Text(
+                              'Model: ${message.modelName}',
+                              style: theme.textTheme.bodySmall?.copyWith(color: Colors.white54),
+                            ),
                           ),
                       ],
                     ),
@@ -297,7 +274,7 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
               },
             ),
           ),
-          if (_isLoading) const Padding(padding: EdgeInsets.symmetric(horizontal: 8.0), child: LinearProgressIndicator()),
+          if (_isLoading) const Padding(padding: EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0), child: LinearProgressIndicator()),
           Padding(
             padding: const EdgeInsets.all(8.0),
             child: Row(
@@ -305,11 +282,27 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
                 Expanded(
                   child: TextField(
                     controller: _controller,
-                    decoration: const InputDecoration(hintText: '메시지를 입력하세요...', border: OutlineInputBorder()),
+                    style: const TextStyle(color: Colors.white),
+                    decoration: InputDecoration(
+                      hintText: '메시지를 입력하세요...',
+                      hintStyle: const TextStyle(color: Colors.white54),
+                      filled: true,
+                      fillColor: Colors.grey[800],
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(30.0),
+                        borderSide: BorderSide.none,
+                      ),
+                    ),
                     onSubmitted: (value) => _sendMessage(),
                   ),
                 ),
-                IconButton(icon: const Icon(Icons.send), onPressed: _isLoading || _selectedModel == null ? null : _sendMessage),
+                const SizedBox(width: 8),
+                FloatingActionButton(
+                  mini: true,
+                  onPressed: _isLoading || _selectedModel == null ? null : _sendMessage,
+                  child: const Icon(Icons.send),
+                  backgroundColor: theme.colorScheme.secondary,
+                ),
               ],
             ),
           ),
