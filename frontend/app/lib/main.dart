@@ -1,4 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
+import 'chatbot_screen.dart';
+import 'profit_screen.dart';
 
 void main() {
   runApp(const MyApp());
@@ -7,28 +11,13 @@ void main() {
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
-  // This widget is the root of your application.
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Flutter Demo',
       theme: ThemeData(
-        // This is the theme of your application.
-        //
-        // TRY THIS: Try running your application with "flutter run". You'll see
-        // the application has a purple toolbar. Then, without quitting the app,
-        // try changing the seedColor in the colorScheme below to Colors.green
-        // and then invoke "hot reload" (save your changes or press the "hot
-        // reload" button in a Flutter-supported IDE, or press "r" if you used
-        // the command line to start the app).
-        //
-        // Notice that the counter didn't reset back to zero; the application
-        // state is not lost during the reload. To reset the state, use hot
-        // restart instead.
-        //
-        // This works for code too, not just values: Most code changes can be
-        // tested with just a hot reload.
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
+        useMaterial3: true,
       ),
       home: const MyHomePage(title: 'Flutter Demo Home Page'),
     );
@@ -37,86 +26,213 @@ class MyApp extends StatelessWidget {
 
 class MyHomePage extends StatefulWidget {
   const MyHomePage({super.key, required this.title});
-
-  // This widget is the home page of your application. It is stateful, meaning
-  // that it has a State object (defined below) that contains fields that affect
-  // how it looks.
-
-  // This class is the configuration for the state. It holds the values (in this
-  // case the title) provided by the parent (in this case the App widget) and
-  // used by the build method of the State. Fields in a Widget subclass are
-  // always marked "final".
-
   final String title;
 
   @override
   State<MyHomePage> createState() => _MyHomePageState();
 }
 
-class _MyHomePageState extends State<MyHomePage> {
-  int _counter = 0;
+class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateMixin {
+  late TabController _tabController;
+  String _selectedCountry = 'US';
 
-  void _incrementCounter() {
-    setState(() {
-      // This call to setState tells the Flutter framework that something has
-      // changed in this State, which causes it to rerun the build method below
-      // so that the display can reflect the updated values. If we changed
-      // _counter without calling setState(), then the build method would not be
-      // called again, and so nothing would appear to happen.
-      _counter++;
+  bool _isLoading = true;
+  Map<String, dynamic> _usProfitData = {};
+  Map<String, dynamic> _krProfitData = {};
+  Map<String, double> _usCurrentPrices = {};
+  Map<String, double> _krCurrentPrices = {};
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 2, vsync: this);
+    _tabController.addListener(() {
+      setState(() {});
     });
+    _fetchData();
+  }
+
+  Future<void> _fetchData() async {
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
+    try {
+      // API 호출을 병렬로 실행합니다.
+      final responses = await Future.wait([
+        http.get(Uri.parse('http://127.0.0.1:8000/calculate_profit?country=US')),
+        http.get(Uri.parse('http://127.0.0.1:8000/calculate_profit?country=KR')),
+      ]);
+
+      if (responses[0].statusCode == 200 && responses[1].statusCode == 200) {
+        _usProfitData = jsonDecode(utf8.decode(responses[0].bodyBytes));
+        _krProfitData = jsonDecode(utf8.decode(responses[1].bodyBytes));
+
+        // Fetch current prices for all stocks
+        await _fetchCurrentPrices();
+
+        setState(() {});
+      } else {
+        // 에러 메시지를 생성합니다.
+        final usError = responses[0].statusCode != 200 ? 'US data error: ${responses[0].statusCode}' : '';
+        final krError = responses[1].statusCode != 200 ? 'KR data error: ${responses[1].statusCode}' : '';
+        throw Exception('$usError $krError'.trim());
+      }
+    } catch (e) {
+      setState(() {
+        _error = '데이터를 불러오는 데 실패했습니다: $e';
+      });
+    } finally {
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+
+  Future<void> _fetchCurrentPrices() async {
+    // Helper function to fetch prices for a given country and data
+    Future<Map<String, double>> fetchPricesForCountry(Map<String, dynamic> profitData, String country) async {
+      final Map<String, double> prices = {};
+      if (profitData['stocks'] != null) {
+        for (var stockMap in profitData['stocks']) {
+          final ticker = stockMap.keys.first;
+          final stockHolding = stockMap.values.first;
+          if (stockHolding['holdings']['total'] > 0) {
+            try {
+              final response = await http.get(Uri.parse('http://127.0.0.1:8000/current_price/$country/$ticker'));
+              if (response.statusCode == 200) {
+                final data = jsonDecode(response.body);
+                prices[ticker] = data['current_price'];
+              } else {
+                prices[ticker] = 0.0; // Error case
+              }
+            } catch (e) {
+              prices[ticker] = 0.0; // Error case
+            }
+            // Add a small delay to avoid hitting rate limits.
+            await Future.delayed(const Duration(milliseconds: 200));
+          }
+        }
+      }
+      return prices;
+    }
+
+    // Fetch for both countries in parallel
+    final results = await Future.wait([
+      fetchPricesForCountry(_usProfitData, 'US'),
+      fetchPricesForCountry(_krProfitData, 'KR'),
+    ]);
+
+    _usCurrentPrices = results[0];
+    _krCurrentPrices = results[1];
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
+
+  void _showChatbotPopup() {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return Dialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16.0),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: SizedBox(
+            width: MediaQuery.of(context).size.width * 0.8,
+            height: MediaQuery.of(context).size.height * 0.7,
+            child: const ChatbotScreen(),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildProfitScreen() {
+    if (_isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_error != null) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(_error!),
+            const SizedBox(height: 16),
+            ElevatedButton(
+              onPressed: _fetchData,
+              child: const Text('다시 시도'),
+            ),
+          ],
+        ),
+      );
+    }
+    
+    final profitData = _selectedCountry == 'US' ? _usProfitData : _krProfitData;
+    final currentPrices = _selectedCountry == 'US' ? _usCurrentPrices : _krCurrentPrices;
+
+    return ProfitScreen(
+      country: _selectedCountry,
+      profitData: profitData,
+      currentPrices: currentPrices,
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    // This method is rerun every time setState is called, for instance as done
-    // by the _incrementCounter method above.
-    //
-    // The Flutter framework has been optimized to make rerunning build methods
-    // fast, so that you can just rebuild anything that needs updating rather
-    // than having to individually change instances of widgets.
     return Scaffold(
       appBar: AppBar(
-        // TRY THIS: Try changing the color here to a specific color (to
-        // Colors.amber, perhaps?) and trigger a hot reload to see the AppBar
-        // change color while the other colors stay the same.
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        // Here we take the value from the MyHomePage object that was created by
-        // the App.build method, and use it to set our appbar title.
-        title: Text(widget.title),
-      ),
-      body: Center(
-        // Center is a layout widget. It takes a single child and positions it
-        // in the middle of the parent.
-        child: Column(
-          // Column is also a layout widget. It takes a list of children and
-          // arranges them vertically. By default, it sizes itself to fit its
-          // children horizontally, and tries to be as tall as its parent.
-          //
-          // Column has various properties to control how it sizes itself and
-          // how it positions its children. Here we use mainAxisAlignment to
-          // center the children vertically; the main axis here is the vertical
-          // axis because Columns are vertical (the cross axis would be
-          // horizontal).
-          //
-          // TRY THIS: Invoke "debug painting" (choose the "Toggle Debug Paint"
-          // action in the IDE, or press "p" in the console), to see the
-          // wireframe for each widget.
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
-            const Text('You have pushed the button this many times:'),
-            Text(
-              '$_counter',
-              style: Theme.of(context).textTheme.headlineMedium,
-            ),
+        title: const Text('My Wallet'),
+        actions: [
+          DropdownButton<String>(
+            value: _selectedCountry,
+            onChanged: (String? newValue) {
+              if (newValue != null) {
+                setState(() {
+                  _selectedCountry = newValue;
+                });
+              }
+            },
+            items: <String>['US', 'KR']
+                .map<DropdownMenuItem<String>>((String value) {
+              return DropdownMenuItem<String>(
+                value: value,
+                child: Text(value),
+              );
+            }).toList(),
+            iconEnabledColor: Colors.white,
+          ),
+          const SizedBox(width: 16),
+        ],
+        bottom: TabBar(
+          controller: _tabController,
+          tabs: const [
+            Tab(icon: Icon(Icons.home), text: '홈'),
+            Tab(icon: Icon(Icons.show_chart), text: '수익 현황'),
           ],
         ),
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _incrementCounter,
-        tooltip: 'Increment',
-        child: const Icon(Icons.add),
-      ), // This trailing comma makes auto-formatting nicer for build methods.
+      body: TabBarView(
+        controller: _tabController,
+        children: [
+          const Center(
+            child: Text('안녕하세요! 챗봇을 이용해보세요.'),
+          ),
+          _buildProfitScreen(),
+        ],
+      ),
+      floatingActionButton: _tabController.index == 0
+          ? FloatingActionButton(
+              onPressed: _showChatbotPopup,
+              tooltip: '챗봇 열기',
+              child: const Icon(Icons.chat),
+            )
+          : null,
     );
   }
 }
