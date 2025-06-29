@@ -1,0 +1,19 @@
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+.env
+
+# Flutter
+/frontend/app/build/
+/frontend/app/.dart_tool/
+/frontend/app/.flutter-plugins
+/frontend/app/.flutter-plugins-dependencies
+/frontend/app/*.iml
+/frontend/app/*.metadata
+
+# IDEs
+.idea/
+.vscode/
