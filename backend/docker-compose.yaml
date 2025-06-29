@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  api:
+    image: python_env:v1
+    container_name: fast-api
+    ports:
+      - "8000:8080"
+
+    volumes:
+      - ./api:/app
+      - ./.env:/app/.env
+    restart: unless-stopped
+
+    command: uvicorn app:app --host 0.0.0.0 --port 8080 --reload
+networks:
+  default:
+    name: api-network

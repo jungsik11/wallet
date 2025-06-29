@@ -1,0 +1,10 @@
+.venv/
+test/
+frontend/
+/api/__pycache__/
+no_use/
+.Ds_Store
+.env
+
+*.ipynb
+/kis/KIS*

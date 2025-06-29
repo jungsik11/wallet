@@ -1,0 +1,1 @@
+docker build -t python_env:v1 -f ./docker/Dockerfile .
