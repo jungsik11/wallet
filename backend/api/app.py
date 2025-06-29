@@ -8,6 +8,7 @@ import os, copy
 from decimal import Decimal
 from dotenv import load_dotenv
 from pykis import PyKis, KisDailyOrders
+import time
 
 # Initialize FastAPI
 app = FastAPI(title="Profit Calculation API")
@@ -42,11 +43,11 @@ class OrderDetail(BaseModel):
     fee: float
 
 class StockHolding(BaseModel):
-    profit: float
+    yearly_profit: Dict[str, float]
     holdings: Dict[str, Any]
 
 class ProfitResponse(BaseModel):
-    profit: float
+    yearly_total_profit: Dict[str, float]
     stocks: List[Dict[str, StockHolding]]
 
 
@@ -55,7 +56,16 @@ class ValuationProfitResponse(BaseModel):
 
     
 
+# Cache for get_history
+history_cache = {}
+history_cache_time = {}
+
 def get_history(country):
+    # Check cache
+    current_time = time.time()
+    if country in history_cache and current_time - history_cache_time.get(country, 0) < 60:
+        return history_cache[country]
+        
     # Get account
     account = kis.account()
 
@@ -85,9 +95,15 @@ def get_history(country):
                 'price': float(order.price),
                 'quantity': float(q),
                 'amount': float(a),
-                'fee': float(order.executed_amount) * -0.0025      
+                'fee': float(order.executed_amount) * -0.0025
             }
+            if hasattr(order, 'exchange'):
+                o['exchange'] = order.exchange
             order_set.append(o)
+            
+    # Update cache
+    history_cache[country] = order_set
+    history_cache_time[country] = current_time
 
     return order_set
 
@@ -120,67 +136,119 @@ async def calculate_profit(
     try:
         order_set = get_history(country)
         
-        
-        # Convert to DataFrame
+        # Convert to DataFrame and parse dates
         df = pd.DataFrame(order_set).sort_values(by=['date', 'time'])
-        print(df)
+        df['date'] = pd.to_datetime(df['date'])
+        
         # Get unique tickers
         tickers = list(set(df['ticker']))
         
-        # Calculate profit
-        bal = {'profit': 0}
+        yearly_total_profit = {}
         stocks = []
         
         for tic in tickers:
-            stock = {'profit': 0, 'holdings': {}}
+            stock_yearly_profit = {}
             dft = df[df['ticker'] == tic].copy()
-            
-            if dft.quantity.sum() == 0:
-                bal['profit'] += float(dft.amount.sum()) + dft.fee.sum()
-                continue
-            
-            holdings = []
-            for i in dft.iterrows():
-                if i[1].order_type == 'buy':
-                    holdings.append((i[1].price, i[1].quantity))
-                else:
-                    a = holdings.pop(0)
-                    b = abs(i[1].quantity)
-                    while b > 0:
-                        if a[1] > b:
-                            holdings.insert(0, (a[0], a[1]-b))
-                            bal['profit'] += float(i[1].price*b)*0.9975 - float(a[0]*b)*1.0025
-                            stock['profit'] += float(i[1].price*b)*0.9975 - float(a[0]*b)*1.0025
-                            b = 0
-                        else:
-                            b -= a[1]
-                            bal['profit'] += float(i[1].price*a[1])*0.9975 - float(a[0]*a[1])*1.0025
-                            stock['profit'] += float(i[1].price*a[1])*0.9975 - float(a[0]*a[1])*1.0025
-            
-            stock['profit'] = round(stock['profit'], 2)
-            stock['holdings']['detail'] = holdings
-            
-            if holdings:
-                h = sum([i[1] for i in holdings])
-                stock['holdings']['total'] = float(h)
-                stock['holdings']['avg_price'] = round(sum(i[0]*i[1] for i in holdings)/h, 2)
-            else:
-                stock['holdings']['total'] = 0
-                stock['holdings']['avg_price'] = 0
+
+            # If total buy quantity equals total sell quantity, use simple profit calculation
+            if abs(dft.quantity.sum()) < 1e-9:
+                total_profit_for_stock = dft.amount.sum() + dft.fee.sum()
+                sells = dft[dft['order_type'] == 'sell']
+                total_sell_value = abs(sells['amount'].sum())
+
+                if total_sell_value > 0:
+                    for _, sell_row in sells.iterrows():
+                        sell_year = str(sell_row.date.year)
+                        # Distribute profit proportionally to sell value
+                        profit_share = (abs(sell_row.amount) / total_sell_value) * total_profit_for_stock
+                        
+                        stock_yearly_profit.setdefault(sell_year, 0)
+                        stock_yearly_profit[sell_year] += profit_share
+                        
+                        yearly_total_profit.setdefault(sell_year, 0)
+                        yearly_total_profit[sell_year] += profit_share
                 
-            stock['profit'] = round(stock['profit'],2)
-            stock['holdings']['detail'] = holdings
-            h = sum([i[1] for i in holdings])
-            stock['holdings']['total'] = h
-            stock['holdings']['avg_price'] = round(sum(i[0]*i[1] for i in holdings)/h,2) 
-            stocks.append({tic:stock})
-            bal['profit'] = round(bal['profit'],2)
+                stock_holdings = {'detail': [], 'total': 0, 'avg_price': 0, 'current_price': 0}
+
+            else: # FIFO logic for stocks with remaining holdings
+                holdings_queue = []  # FIFO queue for buy orders
+                for _, row in dft.iterrows():
+                    if row.order_type == 'buy':
+                        holdings_queue.append({'price': row.price, 'quantity': row.quantity})
+                    else:  # order_type == 'sell'
+                        sell_year = str(row.date.year)
+                        sell_price = row.price
+                        sell_quantity_abs = abs(row.quantity)
+                        
+                        yearly_total_profit.setdefault(sell_year, 0)
+                        stock_yearly_profit.setdefault(sell_year, 0)
+
+                        quantity_to_sell = sell_quantity_abs
+                        
+                        while quantity_to_sell > 0 and holdings_queue:
+                            buy_order = holdings_queue[0]
+                            buy_price = buy_order['price']
+                            buy_quantity = buy_order['quantity']
+                            
+                            match_quantity = min(quantity_to_sell, buy_quantity)
+                            
+                            profit_on_match = (sell_price * match_quantity * 0.9975) - (buy_price * match_quantity * 1.0025)
+                            
+                            yearly_total_profit[sell_year] += profit_on_match
+                            stock_yearly_profit[sell_year] += profit_on_match
+                            
+                            quantity_to_sell -= match_quantity
+                            buy_order['quantity'] -= match_quantity
+                            
+                            if buy_order['quantity'] < 1e-9:
+                                holdings_queue.pop(0)
+
+                # Calculate remaining holdings info
+                stock_holdings = {}
+                remaining_holdings_detail = []
+                total_quantity = 0
+                total_cost = 0
+                
+                for h in holdings_queue:
+                    qty = h['quantity']
+                    price = h['price']
+                    if qty > 1e-9:
+                        remaining_holdings_detail.append((price, qty))
+                        total_quantity += qty
+                        total_cost += price * qty
+                
+                stock_holdings['detail'] = remaining_holdings_detail
+                stock_holdings['total'] = total_quantity
+                stock_holdings['avg_price'] = round(total_cost / total_quantity, 2) if total_quantity > 0 else 0
+
+            # Add exchange code to holdings
+            if country == 'US':
+                stock_holdings['exchange'] = dft.iloc[0].get('exchange', 'NASD')
+            else:
+                stock_holdings['exchange'] = ''
+
+            # Round the profits for the current stock
+            for year, profit in stock_yearly_profit.items():
+                stock_yearly_profit[year] = round(profit, 2)
+
+            # Create the stock object for the response
+            stock_response_obj = {
+                'yearly_profit': stock_yearly_profit,
+                'holdings': stock_holdings
+            }
+            stocks.append({tic: stock_response_obj})
+
+        # Round total profits
+        for year, profit in yearly_total_profit.items():
+            yearly_total_profit[year] = round(profit, 2)
             
+        # Create final response
+        final_response = {
+            'yearly_total_profit': yearly_total_profit,
+            'stocks': stocks
+        }
         
-        bal['profit'] = round(bal['profit'],2)
-        bal['stocks'] = stocks
-        
-        return bal
+        return final_response
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -193,6 +261,16 @@ async def get_account_balance():
         return {"balance": repr(balance)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/current_price/{country}/{ticker}")
+async def get_current_price(country: str, ticker: str):
+    try:
+        price = kis.stock(ticker).quote().price
+        return {"current_price": price}
+    except Exception as e:
+        print(f"Error in /current_price for {ticker} ({country}): {e}")
+        raise HTTPException(status_code=500, detail=f"Error fetching price for {ticker}: {e}")
 
 #if __name__ == "__main__":
     #import uvicorn
