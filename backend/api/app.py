@@ -9,6 +9,8 @@ from decimal import Decimal
 from dotenv import load_dotenv
 from pykis import PyKis, KisDailyOrders
 import time
+import psycopg2
+from psycopg2.pool import SimpleConnectionPool
 
 # Initialize FastAPI
 app = FastAPI(title="Profit Calculation API")
@@ -271,6 +273,111 @@ async def get_current_price(country: str, ticker: str):
     except Exception as e:
         print(f"Error in /current_price for {ticker} ({country}): {e}")
         raise HTTPException(status_code=500, detail=f"Error fetching price for {ticker}: {e}")
+
+
+# --- Chat History API ---
+
+# Database connection pool
+db_pool = None
+
+def get_db_pool():
+    global db_pool
+    if db_pool is None:
+        try:
+            db_pool = SimpleConnectionPool(
+                minconn=1,
+                maxconn=10,
+                user=os.getenv("DB_USER", "user"),
+                password=os.getenv("DB_PASSWORD", "password"),
+                host=os.getenv("DB_HOST", "db"),
+                port=os.getenv("DB_PORT", "5432"),
+                database=os.getenv("DB_NAME", "chatdb")
+            )
+            print("Database connection pool created successfully.")
+        except Exception as e:
+            print(f"Error creating database connection pool: {e}")
+            raise
+    return db_pool
+
+# Pydantic models for chat history
+class ChatMessageCreate(BaseModel):
+    sender: str
+    message: str
+    model_name: Optional[str] = None
+
+class ChatMessageResponse(BaseModel):
+    id: int
+    sender: str
+    message: str
+    model_name: Optional[str] = None
+    created_at: datetime
+
+@app.on_event("startup")
+async def startup_event():
+    get_db_pool()
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    global db_pool
+    if db_pool:
+        db_pool.closeall()
+        print("Database connection pool closed.")
+
+@app.post("/chat", response_model=ChatMessageResponse)
+async def create_chat_message(chat_message: ChatMessageCreate):
+    pool = get_db_pool()
+    conn = None
+    try:
+        conn = pool.getconn()
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO chat_history (sender, message, model_name)
+                VALUES (%s, %s, %s)
+                RETURNING id, sender, message, model_name, created_at
+                """,
+                (chat_message.sender, chat_message.message, chat_message.model_name)
+            )
+            new_message = cur.fetchone()
+            conn.commit()
+            return ChatMessageResponse(
+                id=new_message[0],
+                sender=new_message[1],
+                message=new_message[2],
+                model_name=new_message[3],
+                created_at=new_message[4]
+            )
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        raise HTTPException(status_code=500, detail=f"Database error: {e}")
+    finally:
+        if conn:
+            pool.putconn(conn)
+
+@app.get("/chat", response_model=List[ChatMessageResponse])
+async def get_chat_history():
+    pool = get_db_pool()
+    conn = None
+    try:
+        conn = pool.getconn()
+        with conn.cursor() as cur:
+            cur.execute("SELECT id, sender, message, model_name, created_at FROM chat_history ORDER BY created_at ASC")
+            history = cur.fetchall()
+            return [
+                ChatMessageResponse(
+                    id=row[0],
+                    sender=row[1],
+                    message=row[2],
+                    model_name=row[3],
+                    created_at=row[4]
+                ) for row in history
+            ]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {e}")
+    finally:
+        if conn:
+            pool.putconn(conn)
 
 #if __name__ == "__main__":
     #import uvicorn

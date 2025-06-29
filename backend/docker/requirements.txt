@@ -13,7 +13,9 @@ cryptography==45.0.4
 debugpy==1.8.14
 decorator==5.2.1
 executing==2.2.0
-fastapi==0.115.13
+fastapi
+psycopg2-binary
+python-dotenv==0.115.13
 h11==0.16.0
 idna==3.10
 ipykernel==6.29.5
