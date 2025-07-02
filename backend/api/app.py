@@ -6,8 +6,15 @@ import pandas as pd
 from json import loads, dumps
 import os, copy
 from decimal import Decimal
+<<<<<<< Updated upstream
 # from dotenv import load_dotenv
 from pykis import PyKis, KisDailyOrders
+=======
+from dotenv import load_dotenv
+from pykis import PyKis, KisDailyOrders, KisChart
+from fastapi.responses import JSONResponse
+from datetime import datetime, timedelta
+>>>>>>> Stashed changes
 import time
 import psycopg2
 from psycopg2.pool import SimpleConnectionPool
@@ -262,6 +269,7 @@ async def calculate_profit(
 def get_balance():
     try:
         account = kis.account()
+<<<<<<< Updated upstream
         balance_list = account.balance().stocks
 
         us_holdings = []
@@ -349,11 +357,111 @@ def get_ohlcv(ticker: str, timeframe: str = "1d"):
         chart_data = [
             {
                 "time": bar.time.isoformat(),
+=======
+        balance = account.balance()
+
+        # 현금 잔고 처리
+        krw_deposit = balance.deposits.get('KRW')
+        usd_deposit = balance.deposits.get('USD')
+
+        krw_cash = krw_deposit.amount if krw_deposit else 0
+        usd_cash = usd_deposit.amount if usd_deposit else 0
+        exchange_rate = usd_deposit.exchange_rate if usd_deposit and usd_deposit.exchange_rate else 1.0
+        
+        usd_cash_in_krw = usd_cash * exchange_rate
+
+        cash_response = {
+            "krw": krw_cash,
+            "usd": usd_cash,
+            "usd_in_krw": round(usd_cash_in_krw)
+        }
+        
+        # 주식 잔고 처리
+        stocks_response = []
+        if balance.stocks:
+            for stock in balance.stocks:
+                if stock.market == 'KRX':
+                    stocks_response.append({
+                        "name": stock.name,
+                        "ticker": stock.symbol,
+                        "quantity": stock.qty,
+                        "average_price": round((stock.amount - stock.profit) / stock.qty, 2) if stock.qty > 0 else 0,
+                        "current_price": stock.price,
+                        "valuation": stock.amount,
+                        "profit_loss": stock.profit,
+                        "profit_loss_ratio": stock.profit_rate,
+                        "market": stock.market,
+                        "currency": "KRW"
+                    })
+                else: # 해외 주식
+                    valuation_usd = stock.amount
+                    profit_loss_usd = stock.profit
+                    current_price_usd = stock.price
+                    average_price_usd = (valuation_usd - profit_loss_usd) / stock.qty if stock.qty > 0 else 0
+
+                    stocks_response.append({
+                        "name": stock.name,
+                        "ticker": stock.symbol,
+                        "quantity": stock.qty,
+                        "average_price": round(average_price_usd, 2),
+                        "current_price": round(current_price_usd, 2),
+                        "valuation": round(valuation_usd * exchange_rate),
+                        "valuation_usd": valuation_usd,
+                        "profit_loss": round(profit_loss_usd * exchange_rate),
+                        "profit_loss_usd": profit_loss_usd,
+                        "profit_loss_ratio": stock.profit_rate,
+                        "market": stock.market,
+                        "currency": "USD"
+                    })
+
+        return {
+            "cash": cash_response,
+            "stocks": stocks_response,
+            "exchange_rate": exchange_rate
+        }
+        
+    except Exception as e:
+        import traceback
+        print(f"Error in /account_balance: {e}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/ohlcv")
+async def get_ohlcv(ticker: str, timeframe: str = 'D'):
+    """
+    주기별 ohlcv 데이터를 조회합니다.
+    - timeframe: 'D' (일봉), 'H' (시간봉), 'M' (분봉)
+    """
+    try:
+        stock = kis.stock(ticker)
+        
+        if not stock:
+            raise HTTPException(status_code=404, detail=f"Ticker {ticker} not found")
+        
+        chart = None
+        if timeframe == 'D':
+            chart = stock.chart("1y")
+        elif timeframe == 'H':
+            chart = stock.chart("5d", period=60)
+        elif timeframe == 'M':
+            chart = stock.chart("1d", period=1)
+        else:
+            raise HTTPException(status_code=400, detail=f"Invalid timeframe. Use 'D', 'H', or 'M'.")
+
+        if not chart or not chart.bars:
+            return {"market": stock.market, "data": []}
+
+        ohlcv_data = [
+            {
+                "date": bar.time.isoformat(),
+>>>>>>> Stashed changes
                 "open": bar.open,
                 "high": bar.high,
                 "low": bar.low,
                 "close": bar.close,
                 "volume": bar.volume
+<<<<<<< Updated upstream
             }
             for bar in chart.bars
         ]
@@ -361,6 +469,14 @@ def get_ohlcv(ticker: str, timeframe: str = "1d"):
     except Exception as e:
         print(f"Error fetching OHLCV for {ticker} with timeframe {timeframe}: {e}")
         raise HTTPException(status_code=500, detail=f"Could not fetch chart data for {ticker}: {e}")
+=======
+            } for bar in chart.bars
+        ]
+        return {"market": stock.market, "data": ohlcv_data}
+    except Exception as e:
+        print(f"Error getting ohlcv for {ticker}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+>>>>>>> Stashed changes
 
 
 @app.get("/current_price/{country}/{ticker}")

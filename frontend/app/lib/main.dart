@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
-import 'chatbot_screen.dart';
+import 'asset_status_screen.dart';
+import 'candlestick_chart_screen.dart';
 import 'profit_screen.dart';
 import 'home_screen.dart';
 import 'current_price_screen.dart';
@@ -16,7 +17,11 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+<<<<<<< Updated upstream
       title: 'Wallet App',
+=======
+      title: 'My Wallet',
+>>>>>>> Stashed changes
       theme: ThemeData(
         brightness: Brightness.dark,
         primaryColor: Colors.grey[900],
@@ -25,6 +30,7 @@ class MyApp extends StatelessWidget {
         textTheme: const TextTheme(
           bodyLarge: TextStyle(color: Colors.white),
           bodyMedium: TextStyle(color: Colors.white70),
+<<<<<<< Updated upstream
           titleLarge: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
           titleMedium: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
         ),
@@ -38,6 +44,12 @@ class MyApp extends StatelessWidget {
           secondary: Colors.tealAccent,
           background: Colors.grey[900]!,
           surface: Colors.grey[850]!,
+=======
+        ),
+        appBarTheme: AppBarTheme(
+          backgroundColor: Colors.grey[900],
+          elevation: 0,
+>>>>>>> Stashed changes
         ),
       ),
       home: const MyHomePage(),
@@ -54,6 +66,7 @@ class MyHomePage extends StatefulWidget {
 
 class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateMixin {
   late TabController _tabController;
+<<<<<<< Updated upstream
   bool _isLoading = true;
   Map<String, dynamic> _usProfitData = {};
   Map<String, dynamic> _krProfitData = {};
@@ -61,11 +74,18 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
   List<dynamic> _krBalanceData = [];
   Map<String, dynamic> _portfolioSummary = {};
   String? _error;
+=======
+  Map<String, dynamic>? _profitData;
+  Map<String, dynamic>? _balanceData;
+  bool _isLoading = true;
+  String? _errorMessage;
+>>>>>>> Stashed changes
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
+<<<<<<< Updated upstream
     _tabController.addListener(() {
       setState(() {});
     });
@@ -171,6 +191,113 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
               child: const Icon(Icons.chat),
             )
           : null,
+=======
+    _fetchData();
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _fetchData() async {
+    if (!mounted) return;
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    try {
+      final responses = await Future.wait([
+        http.get(Uri.parse('http://localhost:8000/calculate_profit?country=US')),
+        http.get(Uri.parse('http://localhost:8000/account_balance')),
+      ]);
+
+      final profitResponse = responses[0];
+      final balanceResponse = responses[1];
+
+      if (profitResponse.statusCode == 200 && balanceResponse.statusCode == 200) {
+        if (mounted) {
+          setState(() {
+            _profitData = jsonDecode(utf8.decode(profitResponse.bodyBytes));
+            _balanceData = jsonDecode(utf8.decode(balanceResponse.bodyBytes));
+          });
+        }
+      } else {
+        String errorMsg = '';
+        if (profitResponse.statusCode != 200) {
+          errorMsg += 'Failed to load profit data: ${profitResponse.statusCode}. ';
+        }
+        if (balanceResponse.statusCode != 200) {
+          errorMsg += 'Failed to load account balance: ${balanceResponse.statusCode}.';
+        }
+        throw Exception(errorMsg);
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _errorMessage = e.toString();
+        });
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        toolbarHeight: 0,
+        bottom: TabBar(
+          controller: _tabController,
+          tabs: const [
+            Tab(icon: Icon(Icons.home), text: '홈'),
+            Tab(icon: Icon(Icons.show_chart), text: '수익 현황'),
+            Tab(icon: Icon(Icons.candlestick_chart), text: '현재가'),
+          ],
+        ),
+      ),
+      body: TabBarView(
+        controller: _tabController,
+        children: [
+          const AssetStatusScreen(),
+          _buildProfitTab(),
+          const CandlestickChartScreen(),
+        ],
+      ),
+>>>>>>> Stashed changes
+    );
+  }
+
+  Widget _buildProfitTab() {
+    if (_isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    if (_errorMessage != null) {
+      return Center(child: Text(_errorMessage!));
+    }
+
+    if (_profitData == null || _balanceData == null) {
+      return const Center(child: Text('No data available'));
+    }
+
+    final stocksList = _balanceData!['stocks'] as List<dynamic>;
+    final currentPrices = <String, double>{};
+    for (var stock in stocksList) {
+      currentPrices[stock['ticker']] = (stock['current_price'] as num).toDouble();
+    }
+
+    return ProfitScreen(
+      country: 'US',
+      profitData: _profitData!,
+      currentPrices: currentPrices,
     );
   }
 }
