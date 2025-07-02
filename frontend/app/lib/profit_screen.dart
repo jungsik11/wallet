@@ -145,20 +145,23 @@ class _ProfitScreenState extends State<ProfitScreen> {
     return Column(
       children: [
         Padding(
-          padding: const EdgeInsets.symmetric(vertical: 8.0),
-          child: ToggleButtons(
-            isSelected: [_selectedCountry == 'KR', _selectedCountry == 'US'],
-            onPressed: (int index) {
-              setState(() {
-                _selectedCountry = index == 0 ? 'KR' : 'US';
-              });
-            },
-            borderRadius: BorderRadius.circular(8.0),
-            selectedColor: Colors.white,
-            fillColor: Colors.blueAccent,
-            color: Colors.white70,
-            constraints: BoxConstraints(minWidth: 100, minHeight: 40),
-            children: const [Text('국내'), Text('해외')],
+          padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              Transform.scale(
+                scale: 0.7,
+                child: Switch(
+                  value: _selectedCountry == 'US',
+                  onChanged: (value) {
+                    setState(() {
+                      _selectedCountry = value ? 'US' : 'KR';
+                    });
+                  },
+                ),
+              ),
+              const Text('USD', style: TextStyle(fontSize: 12)),
+            ],
           ),
         ),
         Expanded(child: buildDataView()),

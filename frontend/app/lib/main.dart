@@ -44,8 +44,10 @@ class MyHomePage extends StatefulWidget {
 
 class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateMixin {
   late TabController _tabController;
-  Map<String, dynamic>? _profitData;
-  Map<String, dynamic>? _balanceData;
+  Map<String, dynamic>? _usProfitData;
+  List<dynamic>? _usBalanceData;
+  Map<String, dynamic>? _krProfitData;
+  List<dynamic>? _krBalanceData;
   bool _isLoading = true;
   String? _errorMessage;
 
@@ -72,28 +74,22 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
     try {
       final responses = await Future.wait([
         http.get(Uri.parse('http://localhost:8000/calculate_profit?country=US')),
-        http.get(Uri.parse('http://localhost:8000/account_balance')),
+        http.get(Uri.parse('http://localhost:8000/account_balance?country=US')),
+        http.get(Uri.parse('http://localhost:8000/calculate_profit?country=KR')),
+        http.get(Uri.parse('http://localhost:8000/account_balance?country=KR')),
       ]);
 
-      final profitResponse = responses[0];
-      final balanceResponse = responses[1];
-
-      if (profitResponse.statusCode == 200 && balanceResponse.statusCode == 200) {
+      if (responses.every((response) => response.statusCode == 200)) {
         if (mounted) {
           setState(() {
-            _profitData = jsonDecode(utf8.decode(profitResponse.bodyBytes));
-            _balanceData = jsonDecode(utf8.decode(balanceResponse.bodyBytes));
+            _usProfitData = jsonDecode(utf8.decode(responses[0].bodyBytes));
+            _usBalanceData = jsonDecode(utf8.decode(responses[1].bodyBytes))['stocks'];
+            _krProfitData = jsonDecode(utf8.decode(responses[2].bodyBytes));
+            _krBalanceData = jsonDecode(utf8.decode(responses[3].bodyBytes))['stocks'];
           });
         }
       } else {
-        String errorMsg = '';
-        if (profitResponse.statusCode != 200) {
-          errorMsg += 'Failed to load profit data: ${profitResponse.statusCode}. ';
-        }
-        if (balanceResponse.statusCode != 200) {
-          errorMsg += 'Failed to load account balance: ${balanceResponse.statusCode}.';
-        }
-        throw Exception(errorMsg);
+        throw Exception('Failed to load data');
       }
     } catch (e) {
       if (mounted) {
@@ -144,20 +140,15 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
       return Center(child: Text(_errorMessage!));
     }
 
-    if (_profitData == null || _balanceData == null) {
+    if (_usProfitData == null || _usBalanceData == null || _krProfitData == null || _krBalanceData == null) {
       return const Center(child: Text('No data available'));
     }
 
-    final stocksList = _balanceData!['stocks'] as List<dynamic>;
-    final currentPrices = <String, double>{};
-    for (var stock in stocksList) {
-      currentPrices[stock['ticker']] = (stock['current_price'] as num).toDouble();
-    }
-
     return ProfitScreen(
-      country: 'US',
-      profitData: _profitData!,
-      currentPrices: currentPrices,
+      usProfitData: _usProfitData!,
+      usBalanceData: _usBalanceData!,
+      krProfitData: _krProfitData!,
+      krBalanceData: _krBalanceData!,
     );
   }
 }
