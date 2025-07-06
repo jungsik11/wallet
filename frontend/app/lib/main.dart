@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'asset_status_screen.dart';
 import 'candlestick_chart_screen.dart';
 import 'profit_screen.dart';
+import 'pension_screen.dart';
 
 void main() {
   runApp(const MyApp());
@@ -54,7 +55,7 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(length: 4, vsync: this);
     _fetchData();
   }
 
@@ -117,6 +118,7 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
             Tab(icon: Icon(Icons.home), text: '홈'),
             Tab(icon: Icon(Icons.show_chart), text: '수익 현황'),
             Tab(icon: Icon(Icons.candlestick_chart), text: '현재가'),
+            Tab(icon: Icon(Icons.account_balance_wallet), text: '연금'),
           ],
         ),
       ),
@@ -126,6 +128,7 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
           const AssetStatusScreen(),
           _buildProfitTab(),
           const CandlestickChartScreen(),
+          const PensionScreen(),
         ],
       ),
     );

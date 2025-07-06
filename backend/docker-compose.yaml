@@ -16,7 +16,9 @@ services:
     restart: unless-stopped
 
   api:
-    image: python_env:v2
+    build:
+      context: ./docker
+      dockerfile: Dockerfile
     container_name: fast-api
     ports:
       - "8000:8080"

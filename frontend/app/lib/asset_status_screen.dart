@@ -33,7 +33,7 @@ class _AssetStatusScreenState extends State<AssetStatusScreen> {
 
   Future<void> _fetchBalance() async {
     try {
-      final response = await http.get(Uri.parse('http://localhost:8000/account_balance'));
+      final response = await http.get(Uri.parse('http://10.0.2.2:8000/account_balance'));
       if (response.statusCode == 200) {
         setState(() {
           _balanceData = jsonDecode(utf8.decode(response.bodyBytes));

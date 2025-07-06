@@ -5,6 +5,7 @@ frontend/
 no_use/
 .Ds_Store
 .env
+uv.lock
 
 *.ipynb
 /kis/KIS*

@@ -15,10 +15,11 @@ import time
 # Initialize FastAPI
 app = FastAPI(title="Profit Calculation API")
 
-# Load environment variables
-load_dotenv()
-
 # Initialize PyKis client
+print(f"KIS_ID: {os.getenv('KIS_ID')}")
+print(f"KIS_ACNT: {os.getenv('KIS_ACNT')}")
+print(f"KIS_APPKEY: {os.getenv('KIS_APPKEY')}")
+print(f"KIS_SECRET: {os.getenv('KIS_SECRET')}")
 kis = PyKis(
     id=os.getenv("KIS_ID"),
     account=os.getenv("KIS_ACNT"),
@@ -324,6 +325,88 @@ async def get_account_balance():
     except Exception as e:
         import traceback
         print(f"Error in /account_balance: {e}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# Initialize PyKis client for pension account
+pension_kis = PyKis(
+    id=os.getenv("KIS_ID"),
+    account=os.getenv("KIS_ACNT2"),
+    appkey=os.getenv("KIS_APPKEY2"),
+    secretkey=os.getenv("KIS_SECRET2"),
+    keep_token=True,
+)
+
+@app.get("/account_balance_pension")
+async def get_account_balance_pension():
+    try:
+        account = pension_kis.account()
+        balance = account.balance()
+
+        # 현금 잔고 처리 (기존 get_account_balance와 동일)
+        krw_deposit = balance.deposits.get('KRW')
+        usd_deposit = balance.deposits.get('USD')
+
+        krw_cash = krw_deposit.amount if krw_deposit else 0
+        usd_cash = usd_deposit.amount if usd_deposit else 0
+        exchange_rate = usd_deposit.exchange_rate if usd_deposit and usd_deposit.exchange_rate else 1.0
+        
+        usd_cash_in_krw = usd_cash * exchange_rate
+
+        cash_response = {
+            "krw": krw_cash,
+            "usd": usd_cash,
+            "usd_in_krw": round(usd_cash_in_krw)
+        }
+        
+        # 주식 잔고 처리 (기존 get_account_balance와 동일)
+        stocks_response = []
+        if balance.stocks:
+            for stock in balance.stocks:
+                if stock.market == 'KRX':
+                    stocks_response.append({
+                        "name": stock.name,
+                        "ticker": stock.symbol,
+                        "quantity": stock.qty,
+                        "average_price": round((stock.amount - stock.profit) / stock.qty, 2) if stock.qty > 0 else 0,
+                        "current_price": stock.price,
+                        "valuation": stock.amount,
+                        "profit_loss": stock.profit,
+                        "profit_loss_ratio": stock.profit_rate,
+                        "market": stock.market,
+                        "currency": "KRW"
+                    })
+                else: # 해외 주식
+                    valuation_usd = stock.amount
+                    profit_loss_usd = stock.profit
+                    current_price_usd = stock.price
+                    average_price_usd = (valuation_usd - profit_loss_usd) / stock.qty if stock.qty > 0 else 0
+
+                    stocks_response.append({
+                        "name": stock.name,
+                        "ticker": stock.symbol,
+                        "quantity": stock.qty,
+                        "average_price": round(average_price_usd, 2),
+                        "current_price": round(current_price_usd, 2),
+                        "valuation": round(valuation_usd * exchange_rate),
+                        "valuation_usd": valuation_usd,
+                        "profit_loss": round(profit_loss_usd * exchange_rate),
+                        "profit_loss_usd": profit_loss_usd,
+                        "profit_loss_ratio": stock.profit_rate,
+                        "market": stock.market,
+                        "currency": "USD"
+                    })
+
+        return {
+            "cash": cash_response,
+            "stocks": stocks_response,
+            "exchange_rate": exchange_rate
+        }
+        
+    except Exception as e:
+        import traceback
+        print(f"Error in /account_balance_pension: {e}")
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 

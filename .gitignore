@@ -14,6 +14,10 @@ __pycache__/
 /frontend/app/*.iml
 /frontend/app/*.metadata
 
+# uv
+.venv/
+uv.lock
+
 # IDEs
 .idea/
 .vscode/
