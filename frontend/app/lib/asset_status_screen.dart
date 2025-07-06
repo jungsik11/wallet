@@ -20,7 +20,7 @@ class _PieData {
 }
 
 class _AssetStatusScreenState extends State<AssetStatusScreen> {
-  String _selectedCurrency = 'KRW';
+  String _selectedCurrency = 'USD';
   Map<String, dynamic>? _balanceData;
   bool _isLoading = true;
   double _exchangeRate = 0.0;
@@ -84,11 +84,12 @@ class _AssetStatusScreenState extends State<AssetStatusScreen> {
                             Transform.scale(
                               scale: 0.7,
                               child: Switch(
-                                value: _selectedCurrency == 'KRW',
+                                value: _selectedCurrency == 'USD',
                                 onChanged: (value) {
                                   setState(() {
                                     _selectedCurrency = value ? 'KRW' : 'USD';
                                   });
+                                  _fetchBalance(); // 데이터 다시 가져오기
                                 },
                               ),
                             ),

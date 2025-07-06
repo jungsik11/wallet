@@ -40,7 +40,7 @@ class _CurrentPriceScreenState extends State<CurrentPriceScreen> {
     try {
       final ticker = _tickerController.text.toUpperCase();
       final response = await http.get(
-        Uri.parse('http://127.0.0.1:8000/chart/$ticker?interval=$_selectedInterval'),
+        Uri.parse('http://10.0.2.2:8000/chart/$ticker?interval=$_selectedInterval'),
       );
 
       if (response.statusCode == 200) {

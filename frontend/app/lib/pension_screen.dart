@@ -72,9 +72,17 @@ class _PensionScreenState extends State<PensionScreen> {
     final totalKrwValuation = krwStocks.fold<double>(0.0, (sum, stock) => sum + (stock['valuation'] as num).toDouble());
 
     final List<_PieData> chartData = [];
+    final totalCash = (_balanceData!['cash']['krw'] ?? 0) + (_balanceData!['cash']['usd_in_krw'] ?? 0);
+
+    if (totalCash > 0) {
+      chartData.add(_PieData('예수금', totalCash.toDouble()));
+    }
+
     for (var stock in krwStocks) {
       chartData.add(_PieData(stock['name'], (stock['valuation'] as num).toDouble()));
     }
+
+    final totalValueForChart = chartData.fold<double>(0.0, (sum, data) => sum + data.y);
 
     final currencyFormat = NumberFormat.currency(locale: 'ko_KR', symbol: '₩');
     final usdCurrencyFormat = NumberFormat.currency(locale: 'en_US', symbol: '\$');
@@ -107,6 +115,8 @@ class _PensionScreenState extends State<PensionScreen> {
             else
               const SizedBox(height: 300, child: Center(child: Text("보유 자산이 없습니다."))),
             const SizedBox(height: 20),
+            _buildCashSection(currencyFormat, usdCurrencyFormat), // 예수금 섹션 추가
+            const SizedBox(height: 12),
             Text('연금 보유 종목 현황', style: Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: 10),
             SizedBox(
@@ -148,6 +158,29 @@ class _PensionScreenState extends State<PensionScreen> {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildCashSection(NumberFormat currencyFormat, NumberFormat usdCurrencyFormat) {
+    final cash = _balanceData!['cash'];
+
+    final krw = cash['krw'] ?? 0;
+    final usd = cash['usd'] ?? 0.0;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(left: 8.0, bottom: 2.0),
+          child: Text('예수금', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontSize: 20))),
+        ListTile(
+          visualDensity: VisualDensity.compact,
+          title: Text('원화 / 달러', style: TextStyle(fontSize: 16)),
+          trailing: Text(
+            '${currencyFormat.format(krw)} / ${usdCurrencyFormat.format(usd)}',
+            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+        ),
+      ],
     );
   }
 }

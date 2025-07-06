@@ -36,7 +36,7 @@ class _CandlestickChartScreenState extends State<CandlestickChartScreen> {
     });
 
     try {
-      final response = await http.get(Uri.parse('http://localhost:8000/ohlcv?ticker=$_selectedTicker&timeframe=$_selectedTimeframe'));
+      final response = await http.get(Uri.parse('http://10.0.2.2:8000/ohlcv?ticker=$_selectedTicker&timeframe=$_selectedTimeframe'));
 
       if (response.statusCode == 200) {
         final Map<String, dynamic> responseData = jsonDecode(utf8.decode(response.bodyBytes));

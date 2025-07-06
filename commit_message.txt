@@ -1,0 +1,8 @@
+feat: Add pension tab and API integration
+
+- Implemented new API endpoint for pension account balance in backend.
+- Created new pension_screen.dart for pension tab.
+- Updated main.dart to include pension tab navigation.
+- Fixed various syntax and structural issues in Flutter files.
+- Ensured proper environment variable loading for API.
+- Updated .gitignore files to exclude environment-specific files.
