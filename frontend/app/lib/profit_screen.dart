@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'profit_response.dart';
 import 'yearly_profit_screen.dart';
+import 'responsive_text.dart'; // Add this import
 
 class ProfitScreen extends StatefulWidget {
   final Map<String, dynamic> usProfitData;
@@ -43,7 +44,6 @@ class _ProfitScreenState extends State<ProfitScreen> {
       final profitData = _selectedCountry == 'US' ? widget.usProfitData : widget.krProfitData;
       final balanceData = _selectedCountry == 'US' ? widget.usBalanceData : widget.krBalanceData;
 
-
       final profitResponse = ProfitResponse.fromJson(profitData);
       final currentYearProfit = profitResponse.yearlyTotalProfit[currentYear] ?? 0.0;
       final currencyUnit = _selectedCountry == 'KR' ? '(만원)' : '(USD)';
@@ -61,18 +61,19 @@ class _ProfitScreenState extends State<ProfitScreen> {
           children: [
             Card(
               elevation: 4,
+              color: theme.cardColor, // Apply theme card color
               child: Padding(
                 padding: const EdgeInsets.all(16.0),
                 child: Column(
                   children: [
                     Text(
                       '올해 총 실현손익',
-                      style: theme.textTheme.titleMedium?.copyWith(color: Colors.white70),
+                      style: theme.textTheme.titleMedium?.copyWith(color: theme.colorScheme.onSurface, fontSize: getResponsiveFontSize(context, 18)),
                     ),
                     const SizedBox(height: 8),
                     Text(
                       _formatCurrency(currentYearProfit),
-                      style: theme.textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.bold),
+                      style: theme.textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.bold, color: theme.colorScheme.onSurface, fontSize: getResponsiveFontSize(context, 24)),
                     ),
                     const SizedBox(height: 8),
                     TextButton(
@@ -87,7 +88,7 @@ class _ProfitScreenState extends State<ProfitScreen> {
                           ),
                         );
                       },
-                      child: const Text('연도별 상세 보기'),
+                      child: Text('연도별 상세 보기', style: TextStyle(color: theme.colorScheme.secondary, fontSize: getResponsiveFontSize(context, 14))), // Apply theme secondary color
                     ),
                   ],
                 ),
@@ -97,14 +98,14 @@ class _ProfitScreenState extends State<ProfitScreen> {
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: DataTable(
-                headingTextStyle: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold, color: Colors.white),
-                dataTextStyle: theme.textTheme.bodyMedium,
+                headingTextStyle: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold, color: theme.colorScheme.onSurface, fontSize: getResponsiveFontSize(context, 14)), // Apply theme onSurface color
+                dataTextStyle: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurface, fontSize: getResponsiveFontSize(context, 12)), // Apply theme onSurface color
                 columns: [
-                  const DataColumn(label: Text('종목')),
+                  DataColumn(label: Text('종목')),
                   DataColumn(label: Text('평가손익\n$currencyUnit'), numeric: true),
                   DataColumn(label: Text('현재가\n$currencyUnit'), numeric: true),
                   DataColumn(label: Text('평단가\n$currencyUnit'), numeric: true),
-                  const DataColumn(label: Text('수량'), numeric: true),
+                  DataColumn(label: Text('수량'), numeric: true),
                   DataColumn(label: Text('실현손익\n$currencyUnit'), numeric: true),
                 ],
                 rows: sortedBalanceData.map((holding) {
@@ -113,7 +114,7 @@ class _ProfitScreenState extends State<ProfitScreen> {
                   final currentPrice = holding['current_price'] as double? ?? 0.0;
                   final avgPrice = holding['avg_price'] as double? ?? 0.0;
                   final quantity = holding['quantity'] as int? ?? 0;
-                  final valuationColor = unrealizedPnl > 0 ? Colors.greenAccent[400] : (unrealizedPnl < 0 ? Colors.redAccent[400] : Colors.grey);
+                  final valuationColor = unrealizedPnl > 0 ? Colors.greenAccent[400] : (unrealizedPnl < 0 ? Colors.redAccent[400] : theme.colorScheme.onSurface.withOpacity(0.7)); // Apply theme color for grey
 
                   StockHolding? stockProfitData;
                   for (var stockMap in profitResponse.stocks) {
@@ -127,11 +128,11 @@ class _ProfitScreenState extends State<ProfitScreen> {
                   return DataRow(
                     cells: [
                       DataCell(Text(ticker)),
-                      DataCell(Text(_formatCurrency(unrealizedPnl), style: TextStyle(color: valuationColor))),
-                      DataCell(Text(_formatCurrency(currentPrice))),
-                      DataCell(Text(_formatCurrency(avgPrice))),
-                      DataCell(Text(quantity.toString())),
-                      DataCell(Text(_formatCurrency(realizedPnl))),
+                      DataCell(Text(_formatCurrency(unrealizedPnl), style: TextStyle(color: valuationColor, fontSize: getResponsiveFontSize(context, 12)))),
+                      DataCell(Text(_formatCurrency(currentPrice), style: TextStyle(fontSize: getResponsiveFontSize(context, 12)))),
+                      DataCell(Text(_formatCurrency(avgPrice), style: TextStyle(fontSize: getResponsiveFontSize(context, 12)))),
+                      DataCell(Text(quantity.toString(), style: TextStyle(fontSize: getResponsiveFontSize(context, 12)))),
+                      DataCell(Text(_formatCurrency(realizedPnl), style: TextStyle(fontSize: getResponsiveFontSize(context, 12)))),
                     ],
                   );
                 }).toList(),
@@ -142,30 +143,33 @@ class _ProfitScreenState extends State<ProfitScreen> {
       );
     }
 
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.end,
-            children: [
-              Transform.scale(
-                scale: 0.7,
-                child: Switch(
-                  value: _selectedCountry == 'US',
-                  onChanged: (value) {
-                    setState(() {
-                      _selectedCountry = value ? 'US' : 'KR';
-                    });
-                  },
+    return Scaffold(
+      backgroundColor: theme.scaffoldBackgroundColor, // Apply theme background color
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                Transform.scale(
+                  scale: 0.7,
+                  child: Switch(
+                    value: _selectedCountry == 'US',
+                    onChanged: (value) {
+                      setState(() {
+                        _selectedCountry = value ? 'US' : 'KR';
+                      });
+                    },
+                  ),
                 ),
-              ),
-              const Text('USD', style: TextStyle(fontSize: 12)),
-            ],
+                Text('USD', style: TextStyle(fontSize: 12, color: theme.colorScheme.onSurface)), // Apply theme onSurface color
+              ],
+            ),
           ),
-        ),
-        Expanded(child: buildDataView()),
-      ],
+          Expanded(child: buildDataView()),
+        ],
+      ),
     );
   }
 }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'responsive_text.dart';
+import 'package:app/services/ollama_service.dart'; // Add this import
 
 class ChatbotScreen extends StatefulWidget {
   const ChatbotScreen({Key? key}) : super(key: key);
@@ -27,6 +28,8 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
   List<String> _models = [];
   String? _selectedModel;
   bool _isFetchingModels = true;
+
+  final OllamaService _ollamaService = OllamaService(); // Add OllamaService instance
 
   @override
   void initState() {
@@ -55,25 +58,16 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
 
   Future<void> _fetchModels() async {
     try {
-      final response =
-          await http.get(Uri.parse('http://localhost:11434/api/tags'));
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        final models = (data['models'] as List)
-            .map((model) => model['name'] as String)
-            .toList();
-        setState(() {
-          _models = models;
-          if (_models.isNotEmpty) {
-            _selectedModel = _models.contains('llama3:latest')
-                ? 'llama3:latest'
-                : _models.first;
-          }
-          _isFetchingModels = false;
-        });
-      } else {
-        throw Exception('Failed to load models');
-      }
+      final models = await _ollamaService.fetchOllamaModels();
+      setState(() {
+        _models = models;
+        if (_models.isNotEmpty) {
+          _selectedModel = _models.contains('llama3:latest')
+              ? 'llama3:latest'
+              : _models.first;
+        }
+        _isFetchingModels = false;
+      });
     } catch (e) {
       setState(() {
         _isFetchingModels = false;
@@ -100,46 +94,17 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
     });
 
     try {
-      final request = http.Request(
-        'POST',
-        Uri.parse('http://localhost:11434/api/generate'),
-      );
-      request.headers['Content-Type'] = 'application/json';
-      request.body = jsonEncode({
-        'model': _selectedModel,
-        'prompt': "다음 질문에 대해 요점만 간략하게 한국어로만 대답해: ${userMessage.text}",
-        'stream': true,
-        'options': {'num_predict': 512}
-      });
-
-      final response = await request.send();
-
-      if (response.statusCode == 200) {
-        response.stream.transform(utf8.decoder).listen((value) {
-          final lines = value.split('\n');
-          for (final line in lines) {
-            if (line.isNotEmpty) {
-              final jsonResponse = jsonDecode(line);
-              if (jsonResponse['response'] != null) {
-                setState(() {
-                  botMessage.text += jsonResponse['response'];
-                });
-                _scrollToBottom();
-              }
-              if (jsonResponse['done'] == true) {
-                setState(() {
-                  _isLoading = false;
-                });
-              }
-            }
-          }
-        });
-      } else {
+      await for (var chunk in _ollamaService.sendChatMessage(
+          model: _selectedModel!,
+          prompt: "다음 질문에 대해 요점만 간략하게 한국어로만 대답해: ${userMessage.text}")) {
         setState(() {
-          botMessage.text = 'Error: ${response.reasonPhrase}';
-          _isLoading = false;
+          botMessage.text += chunk;
         });
+        _scrollToBottom();
       }
+      setState(() {
+        _isLoading = false;
+      });
     } catch (e) {
       setState(() {
         botMessage.text = 'Error: $e';
@@ -151,7 +116,7 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: Colors.transparent,
       body: Column(
         children: [
           Padding(
@@ -163,11 +128,11 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
                     ? const SizedBox(
                         height: 24,
                         width: 24,
-                        child: CircularProgressIndicator(strokeWidth: 2.0))
+                        child: CircularProgressIndicator(strokeWidth: 2.0, valueColor: AlwaysStoppedAnimation<Color>(Colors.white)))
                     : DropdownButton<String>(
                         value: _selectedModel,
-                        hint: Text('Select Model', style: TextStyle(color: Colors.black87, fontSize: getResponsiveFontSize(context, 14))),
-                        dropdownColor: Colors.white,
+                        hint: Text('Select Model', style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontSize: getResponsiveFontSize(context, 12))),
+                        dropdownColor: Theme.of(context).cardColor,
                         items: _models.map((String model) {
                           return DropdownMenuItem<String>(
                             value: model,
@@ -176,7 +141,7 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
                                   ? '${model.substring(0, 17)}...'
                                   : model,
                               overflow: TextOverflow.ellipsis,
-                              style: TextStyle(color: Colors.black87, fontSize: getResponsiveFontSize(context, 14)),
+                              style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontSize: getResponsiveFontSize(context, 12)),
                             ),
                           );
                         }).toList(),
@@ -187,7 +152,7 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
                         },
                       ),
                 IconButton(
-                  icon: const Icon(Icons.close, color: Colors.black54),
+                  icon: Icon(Icons.close, color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7)),
                   onPressed: () => Navigator.of(context).pop(),
                 ),
               ],
@@ -210,8 +175,8 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
                         horizontal: 14.0, vertical: 10.0),
                     decoration: BoxDecoration(
                       color: message.isUser
-                          ? Colors.grey[200]
-                          : const Color(0xFF80CBC4), // Desaturated teal
+                          ? Theme.of(context).colorScheme.primaryContainer
+                          : Theme.of(context).colorScheme.secondaryContainer, // Desaturated teal
                       borderRadius: BorderRadius.circular(20.0),
                       boxShadow: [
                         BoxShadow(
@@ -224,7 +189,7 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
                     ),
                     child: Text(
                       message.text,
-                      style: TextStyle(color: message.isUser ? Colors.black87 : Colors.white, fontSize: getResponsiveFontSize(context, 15)),
+                      style: TextStyle(color: message.isUser ? Theme.of(context).colorScheme.onPrimaryContainer : Theme.of(context).colorScheme.onSecondaryContainer, fontSize: getResponsiveFontSize(context, 12)),
                     ),
                   ),
                 );
@@ -234,7 +199,7 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
           if (_isLoading)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 8.0),
-              child: LinearProgressIndicator(backgroundColor: Colors.grey[200], valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF80CBC4))),
+              child: LinearProgressIndicator(backgroundColor: Theme.of(context).colorScheme.surfaceVariant, valueColor: AlwaysStoppedAnimation<Color>(Theme.of(context).colorScheme.secondary)),
             ),
           Padding(
             padding: const EdgeInsets.all(12.0),
@@ -243,12 +208,12 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
                 Expanded(
                   child: TextField(
                     controller: _controller,
-                    style: TextStyle(color: Colors.black87, fontSize: getResponsiveFontSize(context, 16)),
+                    style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontSize: getResponsiveFontSize(context, 12)),
                     decoration: InputDecoration(
                       hintText: '메시지를 입력하세요...',
-                      hintStyle: TextStyle(color: Colors.grey[600], fontSize: getResponsiveFontSize(context, 16)),
+                      hintStyle: TextStyle(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6), fontSize: getResponsiveFontSize(context, 12)),
                       filled: true,
-                      fillColor: Colors.grey[100],
+                      fillColor: Theme.of(context).colorScheme.surfaceVariant,
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(30.0),
                         borderSide: BorderSide.none,
@@ -260,7 +225,7 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
                 ),
                 const SizedBox(width: 8),
                 IconButton(
-                  icon: const Icon(Icons.send, color: Color(0xFF80CBC4)),
+                  icon: Icon(Icons.send, color: Theme.of(context).colorScheme.secondary), // Use theme color
                   onPressed: _isLoading || _selectedModel == null
                       ? null
                       : _sendMessage,
