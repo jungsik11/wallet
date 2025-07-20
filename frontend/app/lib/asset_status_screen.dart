@@ -67,29 +67,6 @@ class _AssetStatusScreenState extends State<AssetStatusScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 8.0),
-                          child: Row(
-                            children: [
-                              if (_selectedCurrency == 'KRW' && _exchangeRate > 0)
-                                Text('환율: ${_exchangeRate.toStringAsFixed(2)}원', style: TextStyle(fontSize: getResponsiveFontSize(context, 12), color: Theme.of(context).colorScheme.onSurface)),
-                              const Spacer(),
-                              Transform.scale(
-                                scale: 0.7,
-                                child: Switch(
-                                  value: _selectedCurrency == 'USD',
-                                  onChanged: (value) {
-                                    setState(() {
-                                      _selectedCurrency = value ? 'KRW' : 'USD';
-                                    });
-                                    _fetchBalance();
-                                  },
-                                ),
-                              ),
-                              Text('USD', style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurface)),
-                            ],
-                          ),
-                        ),
                         _buildTotalAssetSection(currencyFormat, usdCurrencyFormat),
                         const SizedBox(height: 12),
                         _buildCashSection(currencyFormat, usdCurrencyFormat),
@@ -130,7 +107,38 @@ class _AssetStatusScreenState extends State<AssetStatusScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('총 자산', style: theme.textTheme.headlineSmall?.copyWith(fontSize: getResponsiveFontSize(context, 20), color: theme.colorScheme.onSurface)),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Row(
+                  children: [
+                    Text('총 자산', style: theme.textTheme.headlineSmall?.copyWith(fontSize: getResponsiveFontSize(context, 20), color: theme.colorScheme.onSurface)),
+                    if (_selectedCurrency == 'KRW' && _exchangeRate > 0)
+                      Padding(
+                        padding: const EdgeInsets.only(left: 8.0),
+                        child: Text('(환율: ${_exchangeRate.toStringAsFixed(2)}원)', style: TextStyle(fontSize: getResponsiveFontSize(context, 12), color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7))),
+                      ),
+                  ],
+                ),
+                Row(
+                  children: [
+                    Transform.scale(
+                      scale: 0.7,
+                      child: Switch(
+                        value: _selectedCurrency == 'USD',
+                        onChanged: (value) {
+                          setState(() {
+                            _selectedCurrency = value ? 'KRW' : 'USD';
+                          });
+                          _fetchBalance();
+                        },
+                      ),
+                    ),
+                    Text('USD', style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurface)),
+                  ],
+                ),
+              ],
+            ),
             const SizedBox(height: 8),
             Text(
               _selectedCurrency == 'KRW' ? currencyFormat.format(totalAsset) : usdCurrencyFormat.format(totalAsset),
