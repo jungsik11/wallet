@@ -2,10 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:syncfusion_flutter_charts/charts.dart';
 import 'responsive_text.dart';
-import 'package:app/services/wallet_api_service.dart';
 
 class AssetStatusScreen extends StatefulWidget {
-  const AssetStatusScreen({super.key});
+  final List<dynamic> usBalanceData;
+  final List<dynamic> krBalanceData;
+
+  const AssetStatusScreen({
+    super.key,
+    required this.usBalanceData,
+    required this.krBalanceData,
+  });
 
   @override
   State<AssetStatusScreen> createState() => _AssetStatusScreenState();
@@ -21,31 +27,43 @@ class _PieData {
 class _AssetStatusScreenState extends State<AssetStatusScreen> {
   String _selectedCurrency = 'USD';
   Map<String, dynamic>? _balanceData;
-  bool _isLoading = true;
   double _exchangeRate = 0.0;
-
-  final WalletApiService _apiService = WalletApiService();
 
   @override
   void initState() {
     super.initState();
-    _fetchBalance();
+    _updateBalanceData();
   }
 
-  Future<void> _fetchBalance() async {
-    try {
-      final balance = await _apiService.fetchAccountBalance();
-      setState(() {
-        _balanceData = balance;
-        _exchangeRate = (_balanceData!['exchange_rate'] as num?)?.toDouble() ?? 0.0;
-        _isLoading = false;
-      });
-    } catch (e) {
-      setState(() {
-        _isLoading = false;
-      });
-      print('Error fetching balance: \$e');
+  @override
+  void didUpdateWidget(covariant AssetStatusScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _updateBalanceData();
+  }
+
+  void _updateBalanceData() {
+    if (_selectedCurrency == 'USD') {
+      _balanceData = {
+        'stocks': widget.usBalanceData,
+        'cash': {
+          'usd': widget.usBalanceData.firstWhere((stock) => stock['ticker'] == 'USD', orElse: () => {'valuation_usd': 0.0})['valuation_usd'],
+          'krw': 0.0, // Not directly available in US balance data
+          'usd_in_krw': 0.0, // Not directly available in US balance data
+        },
+        'exchange_rate': widget.usBalanceData.firstWhere((stock) => stock['ticker'] == 'USD', orElse: () => {'exchange_rate': 0.0})['exchange_rate'],
+      };
+    } else { // KRW
+      _balanceData = {
+        'stocks': widget.krBalanceData,
+        'cash': {
+          'krw': widget.krBalanceData.firstWhere((stock) => stock['ticker'] == 'KRW', orElse: () => {'valuation': 0.0})['valuation'],
+          'usd': 0.0, // Not directly available in KR balance data
+          'usd_in_krw': widget.krBalanceData.firstWhere((stock) => stock['ticker'] == 'USD', orElse: () => {'valuation': 0.0})['valuation'],
+        },
+        'exchange_rate': widget.krBalanceData.firstWhere((stock) => stock['ticker'] == 'KRW', orElse: () => {'exchange_rate': 0.0})['exchange_rate'],
+      };
     }
+    _exchangeRate = (_balanceData!['exchange_rate'] as num?)?.toDouble() ?? 0.0;
   }
 
   @override
@@ -56,27 +74,28 @@ class _AssetStatusScreenState extends State<AssetStatusScreen> {
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       body: RefreshIndicator(
-        onRefresh: _fetchBalance,
-        child: _isLoading
-            ? const Center(child: CircularProgressIndicator())
-            : _balanceData == null
-                ? const Center(child: Text('데이터를 불러오는데 실패했습니다.'))
-                : SingleChildScrollView(
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        _buildTotalAssetSection(currencyFormat, usdCurrencyFormat),
-                        const SizedBox(height: 12),
-                        _buildCashSection(currencyFormat, usdCurrencyFormat),
-                        const SizedBox(height: 12),
-                        _buildStockSection(currencyFormat, usdCurrencyFormat),
-                        const Divider(),
-                        _buildPieChart(currencyFormat, usdCurrencyFormat),
-                      ],
-                    ),
-                  ),
+        onRefresh: () async {
+          // 데이터는 main.dart에서 관리하므로 여기서는 새로고침 로직이 필요 없음
+          // 필요하다면 main.dart의 _fetchData를 다시 호출하도록 구현
+        },
+        child: _balanceData == null
+            ? const Center(child: Text('데이터를 불러오는데 실패했습니다.'))
+            : SingleChildScrollView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildTotalAssetSection(currencyFormat, usdCurrencyFormat),
+                    const SizedBox(height: 12),
+                    _buildCashSection(currencyFormat, usdCurrencyFormat),
+                    const SizedBox(height: 12),
+                    _buildStockSection(currencyFormat, usdCurrencyFormat),
+                    const Divider(),
+                    _buildPieChart(currencyFormat, usdCurrencyFormat),
+                  ],
+                ),
+              ),
       ),
     );
   }
@@ -129,8 +148,8 @@ class _AssetStatusScreenState extends State<AssetStatusScreen> {
                         onChanged: (value) {
                           setState(() {
                             _selectedCurrency = value ? 'KRW' : 'USD';
+                            _updateBalanceData(); // 통화 변경 시 데이터 업데이트
                           });
-                          _fetchBalance();
                         },
                       ),
                     ),

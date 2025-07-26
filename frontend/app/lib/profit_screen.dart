@@ -9,6 +9,8 @@ class ProfitScreen extends StatefulWidget {
   final List<dynamic> usBalanceData;
   final Map<String, dynamic> krProfitData;
   final List<dynamic> krBalanceData;
+  final double? usExchangeRate; // Add this
+  final double? krExchangeRate; // Add this
 
   const ProfitScreen({
     Key? key,
@@ -16,6 +18,8 @@ class ProfitScreen extends StatefulWidget {
     required this.usBalanceData,
     required this.krProfitData,
     required this.krBalanceData,
+    this.usExchangeRate, // Make optional
+    this.krExchangeRate, // Make optional
   }) : super(key: key);
 
   @override
@@ -41,17 +45,33 @@ class _ProfitScreenState extends State<ProfitScreen> {
 
     Widget buildDataView() {
       final currentYear = DateTime.now().year.toString();
-      final profitData = _selectedCountry == 'US' ? widget.usProfitData : widget.krProfitData;
-      final balanceData = _selectedCountry == 'US' ? widget.usBalanceData : widget.krBalanceData;
 
-      final profitResponse = ProfitResponse.fromJson(profitData);
-      final currentYearProfit = profitResponse.yearlyTotalProfit[currentYear] ?? 0.0;
+      // Create profit responses for both US and KR
+      final usProfitResponse = ProfitResponse.fromJson(widget.usProfitData);
+      final krProfitResponse = ProfitResponse.fromJson(widget.krProfitData);
+
+      final profitResponseForSelectedCountry = _selectedCountry == 'US' ? usProfitResponse : krProfitResponse;
+      final balanceDataForSelectedCountry = _selectedCountry == 'US' ? widget.usBalanceData : widget.krBalanceData;
+
+      final currentYearProfit = profitResponseForSelectedCountry.yearlyTotalProfit[currentYear] ?? 0.0;
       final currencyUnit = _selectedCountry == 'KR' ? '(만원)' : '(USD)';
 
-      final sortedBalanceData = List.from(balanceData)..sort((a, b) {
-        final aValuation = (a['current_price'] as double? ?? 0.0) * (a['quantity'] as int? ?? 0);
-        final bValuation = (b['current_price'] as double? ?? 0.0) * (b['quantity'] as int? ?? 0);
-        return bValuation.compareTo(aValuation);
+      final sortedBalanceData = List.from(balanceDataForSelectedCountry)..sort((a, b) {
+        final aIsUsd = a['currency'] == 'USD';
+        final bIsUsd = b['currency'] == 'USD';
+
+        double aProfitLoss;
+        double bProfitLoss;
+
+        if (_selectedCountry == 'US') {
+          aProfitLoss = (a['profit_loss_usd'] as num?)?.toDouble() ?? 0.0;
+          bProfitLoss = (b['profit_loss_usd'] as num?)?.toDouble() ?? 0.0;
+        } else { // KR
+          aProfitLoss = (a['profit_loss'] as num?)?.toDouble() ?? 0.0;
+          bProfitLoss = (b['profit_loss'] as num?)?.toDouble() ?? 0.0;
+        }
+
+        return bProfitLoss.compareTo(aProfitLoss); // Descending order
       });
 
       return SingleChildScrollView(
@@ -76,19 +96,32 @@ class _ProfitScreenState extends State<ProfitScreen> {
                       style: theme.textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.bold, color: theme.colorScheme.onSurface, fontSize: getResponsiveFontSize(context, 24)),
                     ),
                     const SizedBox(height: 8),
-                    TextButton(
-                      onPressed: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => YearlyProfitScreen(
-                              profitResponse: profitResponse,
-                              country: _selectedCountry,
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        TextButton(
+                          onPressed: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => YearlyProfitScreen(
+                                  profitResponse: profitResponseForSelectedCountry, // Use the correct profit response
+                                  country: _selectedCountry,
+                                ),
+                              ),
+                            );
+                          },
+                          child: Text('연도별 상세 보기', style: TextStyle(color: theme.colorScheme.secondary, fontSize: getResponsiveFontSize(context, 14))), // Apply theme secondary color
+                        ),
+                        if (_selectedCountry == 'KR' && widget.krExchangeRate != null)
+                          Padding(
+                            padding: const EdgeInsets.only(left: 8.0),
+                            child: Text(
+                              '(환율: ${NumberFormat.currency(locale: 'ko_KR', symbol: '₩', decimalDigits: 2).format(widget.krExchangeRate!)}/USD)',
+                              style: TextStyle(fontSize: getResponsiveFontSize(context, 12), color: theme.colorScheme.onSurface.withOpacity(0.7)),
                             ),
                           ),
-                        );
-                      },
-                      child: Text('연도별 상세 보기', style: TextStyle(color: theme.colorScheme.secondary, fontSize: getResponsiveFontSize(context, 14))), // Apply theme secondary color
+                      ],
                     ),
                   ],
                 ),
@@ -110,20 +143,55 @@ class _ProfitScreenState extends State<ProfitScreen> {
                 ],
                 rows: sortedBalanceData.map((holding) {
                   final ticker = holding['ticker'] as String;
-                  final unrealizedPnl = holding['pnl'] as double? ?? 0.0;
-                  final currentPrice = holding['current_price'] as double? ?? 0.0;
-                  final avgPrice = holding['avg_price'] as double? ?? 0.0;
-                  final quantity = holding['quantity'] as int? ?? 0;
-                  final valuationColor = unrealizedPnl > 0 ? Colors.greenAccent[400] : (unrealizedPnl < 0 ? Colors.redAccent[400] : theme.colorScheme.onSurface.withOpacity(0.7)); // Apply theme color for grey
+                  final isUsdStock = holding['currency'] == 'USD';
+
+                  double unrealizedPnl;
+                  double currentPrice;
+                  double avgPrice;
+                  double realizedPnl;
 
                   StockHolding? stockProfitData;
-                  for (var stockMap in profitResponse.stocks) {
-                    if (stockMap.keys.first == ticker) {
-                      stockProfitData = stockMap.values.first;
-                      break;
+
+                  // Determine which profitResponse to use for realized PnL
+                  if (isUsdStock) {
+                    // For USD stocks, always look in US profit data
+                    for (var stockMap in usProfitResponse.stocks) { // Use usProfitResponse
+                      if (stockMap.keys.first == ticker) {
+                        stockProfitData = stockMap.values.first;
+                        break;
+                      }
+                    }
+                  } else {
+                    // For KRW stocks, always look in KR profit data
+                    for (var stockMap in krProfitResponse.stocks) { // Use krProfitResponse
+                      if (stockMap.keys.first == ticker) {
+                        stockProfitData = stockMap.values.first;
+                        break;
+                      }
                     }
                   }
-                  final realizedPnl = stockProfitData?.yearlyProfit[currentYear] ?? 0.0;
+
+                  if (_selectedCountry == 'US') {
+                    unrealizedPnl = (holding['profit_loss_usd'] as num?)?.toDouble() ?? 0.0;
+                    currentPrice = (holding['current_price'] as num?)?.toDouble() ?? 0.0;
+                    avgPrice = (holding['average_price'] as num?)?.toDouble() ?? 0.0;
+                    realizedPnl = (stockProfitData?.yearlyProfit[currentYear] as num?)?.toDouble() ?? 0.0;
+                  } else { // _selectedCountry == 'KR'
+                    unrealizedPnl = (holding['profit_loss'] as num?)?.toDouble() ?? 0.0;
+                    if (isUsdStock && widget.krExchangeRate != null) {
+                      currentPrice = ((holding['current_price'] as num?)?.toDouble() ?? 0.0) * widget.krExchangeRate!;
+                      avgPrice = ((holding['average_price'] as num?)?.toDouble() ?? 0.0) * widget.krExchangeRate!;
+                      realizedPnl = (stockProfitData?.yearlyProfit[currentYear] as num?)?.toDouble() ?? 0.0;
+                      realizedPnl = realizedPnl * widget.krExchangeRate!;
+                    } else {
+                      currentPrice = (holding['current_price'] as num?)?.toDouble() ?? 0.0;
+                      avgPrice = (holding['average_price'] as num?)?.toDouble() ?? 0.0;
+                      realizedPnl = (stockProfitData?.yearlyProfit[currentYear] as num?)?.toDouble() ?? 0.0;
+                    }
+                  }
+
+                  final quantity = (holding['quantity'] as int?) ?? 0;
+                  final valuationColor = unrealizedPnl > 0 ? Colors.greenAccent[400] : (unrealizedPnl < 0 ? Colors.redAccent[400] : theme.colorScheme.onSurface.withOpacity(0.7));
 
                   return DataRow(
                     cells: [

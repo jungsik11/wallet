@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
-import 'package:app/generated/l10n/l10n.dart';
+
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:intl/intl.dart';
@@ -13,6 +13,7 @@ import 'package:app/constants/api_constants.dart';
 import 'package:app/services/wallet_api_service.dart';
 import 'package:app/chatbot_screen.dart'; // Add this line
 import 'package:app/responsive_text.dart'; // Add this line
+import 'package:app/home_screen.dart';
 
 
 void main() {
@@ -27,13 +28,6 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       title: 'My Wallet',
       theme: appTheme,
-      localizationsDelegates: [
-        AppLocalizations.delegate,
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
-      supportedLocales: AppLocalizations.supportedLocales,
       home: const MyHomePage(),
     );
   }
@@ -50,8 +44,11 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
   late TabController _tabController;
   Map<String, dynamic>? _usProfitData;
   List<dynamic>? _usBalanceData;
+  double? _usExchangeRate;
   Map<String, dynamic>? _krProfitData;
   List<dynamic>? _krBalanceData;
+  double? _krExchangeRate;
+  Map<String, dynamic>? _pensionBalanceData;
   bool _isLoading = true;
   String? _errorMessage;
 
@@ -81,9 +78,12 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
       _usProfitData = await _apiService.fetchUsProfitData();
       final usBalance = await _apiService.fetchUsBalanceData();
       _usBalanceData = usBalance['stocks'] as List?;
+      _usExchangeRate = usBalance['exchange_rate'] as double?;
       _krProfitData = await _apiService.fetchKrProfitData();
       final krBalance = await _apiService.fetchKrBalanceData();
       _krBalanceData = krBalance['stocks'] as List?;
+      _krExchangeRate = krBalance['exchange_rate'] as double?;
+      _pensionBalanceData = await _apiService.fetchPensionBalanceData();
 
       if (mounted) {
         setState(() {
@@ -118,13 +118,12 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
       body: TabBarView(
         controller: _tabController,
         children: [
-          // 홈 화면 (비워둠)
-          const Center(child: Text('홈 화면입니다.')),
+          _buildHomeTab(),
           // 자산 탭 (주식, 연금 슬라이드)
           PageView(
-            children: const [
-              AssetStatusScreen(),
-              PensionScreen(),
+            children: [
+              _buildAssetStatusScreen(),
+              _buildPensionScreen(),
             ],
           ),
           // 수익 현황 탭
@@ -152,8 +151,52 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
     );
   }
 
+  Widget _buildHomeTab() {
+    if (_isLoading || _usProfitData == null || _usBalanceData == null || _krProfitData == null || _krBalanceData == null || _pensionBalanceData == null) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_errorMessage != null) {
+      return Center(child: Text(_errorMessage!));
+    }
+    // HomeScreen에 필요한 데이터 전달
+    return HomeScreen(
+      usProfitData: _usProfitData!,
+      usBalanceData: _usBalanceData!,
+      krProfitData: _krProfitData!,
+      krBalanceData: _krBalanceData!,
+      pensionBalanceData: _pensionBalanceData!,
+    );
+  }
+
+  Widget _buildAssetStatusScreen() {
+    if (_isLoading || _usBalanceData == null || _krBalanceData == null) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_errorMessage != null) {
+      return Center(child: Text(_errorMessage!));
+    }
+    // AssetStatusScreen에 필요한 데이터 전달
+    return AssetStatusScreen(
+      usBalanceData: _usBalanceData!,
+      krBalanceData: _krBalanceData!,
+    );
+  }
+
+  Widget _buildPensionScreen() {
+    if (_isLoading || _pensionBalanceData == null) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_errorMessage != null) {
+      return Center(child: Text(_errorMessage!));
+    }
+    // PensionScreen에 필요한 데이터 전달
+    return PensionScreen(
+      pensionBalanceData: _pensionBalanceData!,
+    );
+  }
+
   Widget _buildProfitTab() {
-    if (_isLoading) {
+    if (_isLoading || _usProfitData == null || _usBalanceData == null || _krProfitData == null || _krBalanceData == null) {
       return const Center(child: CircularProgressIndicator());
     }
 
@@ -161,15 +204,13 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
       return Center(child: Text(_errorMessage!));
     }
 
-    if (_usProfitData == null || _usBalanceData == null || _krProfitData == null || _krBalanceData == null) {
-      return const Center(child: Text('No data available'));
-    }
-
     return ProfitScreen(
       usProfitData: _usProfitData!,
       usBalanceData: _usBalanceData!,
       krProfitData: _krProfitData!,
       krBalanceData: _krBalanceData!,
+      usExchangeRate: _usExchangeRate!,
+      krExchangeRate: _krExchangeRate!,
     );
   }
 }
