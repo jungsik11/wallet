@@ -222,7 +222,7 @@ class _CandlestickChartScreenState extends State<CandlestickChartScreen> {
                                         final value = details.value;
                                         String formattedText;
                                         if (_market == 'KRX') {
-                                          formattedText = '${NumberFormat.compact().format(value / 10000)}만';
+                                          formattedText = '${NumberFormat.compact().format(value / 10000)} 만원';
                                         } else {
                                           formattedText = NumberFormat.compactSimpleCurrency(locale: 'en_US').format(value);
                                         }
