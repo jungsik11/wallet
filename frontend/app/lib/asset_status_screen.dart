@@ -147,7 +147,7 @@ class _AssetStatusScreenState extends State<AssetStatusScreen> {
                         value: _selectedCurrency == 'USD',
                         onChanged: (value) {
                           setState(() {
-                            _selectedCurrency = value ? 'KRW' : 'USD';
+                            _selectedCurrency = value ? 'USD' : 'KRW';
                             _updateBalanceData(); // 통화 변경 시 데이터 업데이트
                           });
                         },
