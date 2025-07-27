@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:syncfusion_flutter_charts/charts.dart';
+import 'package:app/services/wallet_api_service.dart'; // Add this import
 
 class ChartData {
   ChartData(this.x, this.open, this.high, this.low, this.close);
@@ -27,6 +27,8 @@ class _CurrentPriceScreenState extends State<CurrentPriceScreen> {
   String _selectedInterval = '1D'; // 1m, 1h, 1D
   final List<bool> _isSelected = [false, false, true];
 
+  final WalletApiService _apiService = WalletApiService(); // Add this
+
   Future<void> _fetchChartData() async {
     if (_tickerController.text.isEmpty) {
       return;
@@ -39,28 +41,25 @@ class _CurrentPriceScreenState extends State<CurrentPriceScreen> {
 
     try {
       final ticker = _tickerController.text.toUpperCase();
-      final response = await http.get(
-        Uri.parse('http://10.0.2.2:8000/chart/$ticker?interval=$_selectedInterval'),
-      );
+      // Use WalletApiService to fetch data
+      final responseData = await _apiService.fetchOhlcvData(ticker, _selectedInterval);
 
-      if (response.statusCode == 200) {
-        final List<dynamic> chartRawData = jsonDecode(utf8.decode(response.bodyBytes));
-        final List<ChartData> processedData = chartRawData.map((item) {
-          return ChartData(
-            DateTime.parse(item['time']),
-            item['open'].toDouble(),
-            item['high'].toDouble(),
-            item['low'].toDouble(),
-            item['close'].toDouble(),
-          );
-        }).toList();
+      // Extract the actual chart data list from the response map
+      final List<dynamic> chartRawData = responseData['data'];
 
-        setState(() {
-          _chartData = processedData;
-        });
-      } else {
-        throw Exception('Failed to load chart data');
-      }
+      final List<ChartData> processedData = chartRawData.map((item) {
+        return ChartData(
+          DateTime.parse(item['time']),
+          item['open'].toDouble(),
+          item['high'].toDouble(),
+          item['low'].toDouble(),
+          item['close'].toDouble(),
+        );
+      }).toList();
+
+      setState(() {
+        _chartData = processedData;
+      });
     } catch (e) {
       setState(() {
         _error = '차트 데이터를 불러오는 데 실패했습니다: ${e.toString()}';
