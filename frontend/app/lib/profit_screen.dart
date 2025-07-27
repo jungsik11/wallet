@@ -56,7 +56,10 @@ class _ProfitScreenState extends State<ProfitScreen> {
       final currentYearProfit = profitResponseForSelectedCountry.yearlyTotalProfit[currentYear] ?? 0.0;
       final currencyUnit = _selectedCountry == 'KR' ? '(만원)' : '(USD)';
 
-      final sortedBalanceData = List.from(balanceDataForSelectedCountry)..sort((a, b) {
+      final sortedBalanceData = List.from(balanceDataForSelectedCountry)
+        .where((holding) => !(_selectedCountry == 'KR' && holding['currency'] == 'USD')) // Filter out USD stocks when KR is selected
+        .toList()
+        ..sort((a, b) {
         final aIsUsd = a['currency'] == 'USD';
         final bIsUsd = b['currency'] == 'USD';
 

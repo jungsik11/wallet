@@ -165,6 +165,7 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
       krProfitData: _krProfitData!,
       krBalanceData: _krBalanceData!,
       pensionBalanceData: _pensionBalanceData!,
+      usExchangeRate: _usExchangeRate, // Add this line
     );
   }
 
