@@ -57,7 +57,7 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 4, vsync: this);
+    _tabController = TabController(length: 5, vsync: this);
     _fetchData();
   }
 
@@ -109,6 +109,7 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
           controller: _tabController,
           tabs: const [
             Tab(icon: Icon(Icons.home), text: '홈'),
+            Tab(icon: Icon(Icons.trending_up), text: '시세'),
             Tab(icon: Icon(Icons.account_balance_wallet), text: '자산'), // 새로운 자산 탭
             Tab(icon: Icon(Icons.show_chart), text: '수익 현황'),
             Tab(icon: Icon(Icons.candlestick_chart), text: '현재가'),
@@ -119,6 +120,8 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
         controller: _tabController,
         children: [
           _buildHomeTab(),
+          // 시세 탭 (빈 화면)
+          const Center(child: Text('시세 화면')),
           // 자산 탭 (주식, 연금 슬라이드)
           PageView(
             children: [

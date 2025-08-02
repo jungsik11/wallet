@@ -57,6 +57,7 @@ class _ProfitScreenState extends State<ProfitScreen> {
       final currencyUnit = _selectedCountry == 'KR' ? '(만원)' : '(USD)';
 
       final sortedBalanceData = List.from(balanceDataForSelectedCountry)
+        .where((holding) => holding['market'] != 'CASH') // Filter out cash entries
         .where((holding) => !(_selectedCountry == 'KR' && holding['currency'] == 'USD')) // Filter out USD stocks when KR is selected
         .toList()
         ..sort((a, b) {
@@ -193,7 +194,7 @@ class _ProfitScreenState extends State<ProfitScreen> {
                     }
                   }
 
-                  final quantity = (holding['quantity'] as int?) ?? 0;
+                  final quantity = (holding['quantity'] as num?)?.toInt() ?? 0;
                   final valuationColor = unrealizedPnl > 0 ? Colors.greenAccent[400] : (unrealizedPnl < 0 ? Colors.redAccent[400] : theme.colorScheme.onSurface.withOpacity(0.7));
 
                   return DataRow(

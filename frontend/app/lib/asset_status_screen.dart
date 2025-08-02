@@ -323,7 +323,9 @@ class _AssetStatusScreenState extends State<AssetStatusScreen> {
 
       for (int i = 0; i < stocks.length; i++) {
         final stock = stocks[i];
-        chartData.add(_PieData(stock['name'], (stock['valuation'] as num).toDouble(), colorPalette[i % colorPalette.length]));
+        if (stock['market'] != 'CASH') {
+          chartData.add(_PieData(stock['name'], (stock['valuation'] as num).toDouble(), colorPalette[i % colorPalette.length]));
+        }
       }
 
       totalValue = chartData.fold(0, (sum, d) => sum + d.y);

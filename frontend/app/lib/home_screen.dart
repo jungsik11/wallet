@@ -80,14 +80,16 @@ class _HomeScreenState extends State<HomeScreen> {
 
     // Add US stocks
     for (var item in widget.usBalanceData) {
-      final double profitLossUsd = (item['profit_loss_usd'] as num?)?.toDouble() ?? 0.0;
-      final double profitLossKrw = profitLossUsd * (widget.usExchangeRate ?? 1.0);
-      allStocksChartData.add(ChartData(item['name'] as String, profitLossKrw / 10000));
+      if (item['market'] != 'CASH') { // Exclude cash entries
+        final double profitLossUsd = (item['profit_loss_usd'] as num?)?.toDouble() ?? 0.0;
+        final double profitLossKrw = profitLossUsd * (widget.usExchangeRate ?? 1.0);
+        allStocksChartData.add(ChartData(item['name'] as String, profitLossKrw / 10000));
+      }
     }
 
     // Add KR stocks
     for (var item in widget.krBalanceData) {
-      if (item['currency'] == 'KRW') {
+      if (item['currency'] == 'KRW' && item['market'] != 'CASH') { // Exclude cash entries
         final double profitLossKrw = (item['profit_loss'] as double?) ?? 0.0;
         allStocksChartData.add(ChartData(item['name'] as String, profitLossKrw / 10000));
       }
