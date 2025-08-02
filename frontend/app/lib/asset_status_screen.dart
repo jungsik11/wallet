@@ -238,8 +238,8 @@ class _AssetStatusScreenState extends State<AssetStatusScreen> {
           ),
         );
       }
-      final sortedStocks = stocks.toList();
-      sortedStocks.sort((a, b) => (b['valuation'] as num).compareTo(a['valuation'] as num));
+      final sortedStocks = stocks.where((s) => s['market'] != 'CASH').toList();
+      sortedStocks.sort((a, b) => (b['profit_loss'] as num).compareTo(a['profit_loss'] as num));
       return Card(
         margin: const EdgeInsets.symmetric(vertical: 8.0),
         elevation: 4,
@@ -251,8 +251,8 @@ class _AssetStatusScreenState extends State<AssetStatusScreen> {
               Text('주식 상세', style: theme.textTheme.headlineSmall?.copyWith(fontSize: getResponsiveFontSize(context, 16), color: theme.colorScheme.onSurface)),
               const Divider(),
               ...(() {
-                final sortedStocks = stocks.toList();
-                sortedStocks.sort((a, b) => (b['valuation'] as num).compareTo(a['valuation'] as num));
+                final sortedStocks = stocks.where((s) => s['market'] != 'CASH').toList();
+                sortedStocks.sort((a, b) => (b['profit_loss'] as num).compareTo(a['profit_loss'] as num));
                 return sortedStocks.map((stock) => _buildStockTile(stock, currencyFormat, usdCurrencyFormat)).toList();
               })(),
             ],
@@ -260,7 +260,7 @@ class _AssetStatusScreenState extends State<AssetStatusScreen> {
         ),
       );
     } else { // USD
-      final usdStocks = stocks.where((s) => s['currency'] == 'USD').toList();
+      final usdStocks = stocks.where((s) => s['currency'] == 'USD' && s['market'] != 'CASH').toList();
       if (usdStocks.isEmpty) {
         return Card(
           margin: const EdgeInsets.symmetric(vertical: 8.0),
@@ -278,7 +278,7 @@ class _AssetStatusScreenState extends State<AssetStatusScreen> {
         );
       }
       final sortedUsdStocks = usdStocks.toList();
-      sortedUsdStocks.sort((a, b) => (b['valuation_usd'] as num).compareTo(a['valuation_usd'] as num));
+      sortedUsdStocks.sort((a, b) => (b['profit_loss_usd'] as num).compareTo(a['profit_loss_usd'] as num));
       return Card(
         margin: const EdgeInsets.symmetric(vertical: 8.0),
         elevation: 4,
@@ -332,7 +332,7 @@ class _AssetStatusScreenState extends State<AssetStatusScreen> {
       final totalCash = cash['usd'] ?? 0.0;
       chartData.add(_PieData('예수금', totalCash, theme.colorScheme.surfaceVariant));
 
-      final usdStocks = stocks.where((s) => s['currency'] == 'USD').toList();
+      final usdStocks = stocks.where((s) => s['currency'] == 'USD' && s['market'] != 'CASH').toList();
       for (int i = 0; i < usdStocks.length; i++) {
         final stock = usdStocks[i];
         chartData.add(_PieData(stock['name'], (stock['valuation_usd'] as num).toDouble(), colorPalette[i % colorPalette.length]));

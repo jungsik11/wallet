@@ -97,9 +97,9 @@ class _HomeScreenState extends State<HomeScreen> {
     final List<ChartData> sortedChartData = List.from(allStocksChartData)
       ..sort((a, b) => a.value.compareTo(b.value));
 
-    // Sort data for table (ascending to match chart order)
+    // Sort data for table (descending order)
     final List<ChartData> sortedTableData = List.from(allStocksChartData)
-      ..sort((a, b) => a.value.compareTo(b.value));
+      ..sort((a, b) => b.value.compareTo(a.value));
 
     // Use a generic currency formatter for display
     final NumberFormat currencyFormatter = NumberFormat('#,##0.00');

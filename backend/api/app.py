@@ -316,6 +316,38 @@ async def get_account_balance():
                         "currency": "USD"
                     })
 
+        # Add USD cash as a stock-like entry for frontend compatibility
+        stocks_response.append({
+            "name": "USD Cash",
+            "ticker": "USD",
+            "quantity": usd_cash,
+            "average_price": 1.0, # USD cash price is 1.0
+            "current_price": 1.0, # USD cash price is 1.0
+            "valuation": round(usd_cash * exchange_rate),
+            "valuation_usd": usd_cash,
+            "profit_loss": 0.0,
+            "profit_loss_usd": 0.0,
+            "profit_loss_ratio": 0.0,
+            "market": "CASH", # Custom market for cash
+            "currency": "USD"
+        })
+
+        # Add KRW cash as a stock-like entry for frontend compatibility
+        stocks_response.append({
+            "name": "KRW Cash",
+            "ticker": "KRW",
+            "quantity": krw_cash,
+            "average_price": 1.0, # KRW cash price is 1.0
+            "current_price": 1.0, # KRW cash price is 1.0
+            "valuation": krw_cash,
+            "valuation_usd": round(krw_cash / exchange_rate, 2) if exchange_rate > 0 else 0.0,
+            "profit_loss": 0.0,
+            "profit_loss_usd": 0.0,
+            "profit_loss_ratio": 0.0,
+            "market": "CASH", # Custom market for cash
+            "currency": "KRW"
+        })
+
         return {
             "cash": cash_response,
             "stocks": stocks_response,
