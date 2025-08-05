@@ -16,10 +16,7 @@ import time
 app = FastAPI(title="Profit Calculation API")
 
 # Initialize PyKis client
-print(f"KIS_ID: {os.getenv('KIS_ID')}")
-print(f"KIS_ACNT: {os.getenv('KIS_ACNT')}")
-print(f"KIS_APPKEY: {os.getenv('KIS_APPKEY')}")
-print(f"KIS_SECRET: {os.getenv('KIS_SECRET')}")
+
 kis = PyKis(
     id=os.getenv("KIS_ID"),
     account=os.getenv("KIS_ACNT"),
@@ -27,6 +24,51 @@ kis = PyKis(
     secretkey=os.getenv("KIS_SECRET"),
     keep_token=True,
 )
+print(f"KIS Token: {kis.token}")
+
+# KIS API URL
+KIS_URLS = {
+    "prod": "https://openapi.koreainvestment.com:9443",
+    "vps": "https://openapivts.koreainvestment.com:29443"
+}
+
+# 기본 헤더
+_base_headers = {
+    "Content-Type": "application/json",
+    "Accept": "text/plain",
+    "charset": "UTF-8",
+}
+
+def _url_fetch(api_url, tr_id, tr_cont, params, svr="vps"):
+    token = kis.token
+    if not token:
+        raise Exception("토큰 발급 실패: pykis에서 유효한 토큰을 가져올 수 없습니다.")
+
+    headers = _base_headers.copy()
+    headers["authorization"] = str(token)
+    headers["appkey"] = os.getenv("KIS_APPKEY")
+    headers["appsecret"] = os.getenv("KIS_SECRET")
+    headers["tr_id"] = tr_id
+    headers["custtype"] = "P"
+    headers["tr_cont"] = tr_cont
+    
+    import requests
+    url = f"{KIS_URLS.get(svr)}{api_url}"
+
+    print(f"Request URL: {url}")
+    print(f"Request Headers: {headers}")
+    print(f"Request Params: {params}")
+
+    res = requests.get(url, headers=headers, params=params)
+
+    print(f"Response Status Code: {res.status_code}")
+    print(f"Response Text: {res.text}")
+
+    if res.status_code == 200:
+        return res.json()
+    else:
+        raise Exception(f"API 요청 실패: {res.status_code} - {res.text}")
+
 
 # Define models
 class DateRange(BaseModel):
@@ -493,6 +535,55 @@ async def get_current_price(country: str, ticker: str):
         print(f"Error in /current_price for {ticker} ({country}): {e}")
         raise HTTPException(status_code=500, detail=f"Error fetching price for {ticker}: {e}")
 
-#if __name__ == "__main__":
-    #import uvicorn
-    #uvicorn.run(app, host="0.0.0.0", port=8000)
+
+@app.get("/ranking/updown-rate")
+async def get_overseas_stock_updown_rate(
+    #excd: str = Query(..., description="거래소명 (NYS, NAS, AMS, HKS, SHS, SZS, HSX, HNX, TSE)"),
+    nday: str = Query(..., description="N일자값 (0:당일, 1:2일, 2:3일, 3:5일, 4:10일, 5:20일전, 6:30일, 7:60일, 8:120일, 9:1년)"),
+    gubn: str = Query(..., description="상승율/하락율 구분 (0:하락율, 1:상승율)"),
+    vol_rang: str = Query(..., description="거래량조건 (0:전체, 1:1백주이상, 2:1천주이상, 3:1만주이상, 4:10만주이상, 5:100만주이상, 6:1000만주이상)"),
+    svr: str = Query("vps", description="서버 구분 (prod, vps)")
+):
+    api_url = "/uapi/overseas-stock/v1/ranking/updown-rate"
+    tr_id = "HHDFS76290000"
+    
+    all_stocks = []
+    tr_cont = ""
+    keyb = ""
+    for excd_val in ["NYS", "NAS", "AMS"]:
+        params = {
+            "EXCD": excd_val, "NDAY": nday, "GUBN": gubn, "VOL_RANG": vol_rang, "KEYB": keyb
+        }
+        
+        try:
+            res = _url_fetch(api_url, tr_id, tr_cont, params, svr)
+            
+            if res and res.get('output2'):
+                for item in res['output2']:
+                    # Extract and convert necessary fields
+                    try:
+                        rate_val = float(item.get('rate', 0.0))
+                    except ValueError:
+                        rate_val = 0.0 # Default to 0.0 if conversion fails
+
+                    all_stocks.append({
+                        "name": item.get('name', ''),
+                        "last": item.get('last', 0.0),
+                        "diff": item.get('diff', 0.0),
+                        "rate": rate_val,
+                        "tvol": item.get('tvol', 0)
+                    })
+
+        except Exception as e:
+            # Log the error but continue to the next exchange if one fails
+            print(f"Error fetching data for exchange {excd_val}: {e}")
+            break # Break from inner loop for current exchange
+
+    # Sort by 'rate' in descending order
+    sorted_stocks = sorted(all_stocks, key=lambda x: x['rate'], reverse=True)
+
+    # Return only the top 10 stocks
+    return {"output2": sorted_stocks[:10]}
+
+
+
