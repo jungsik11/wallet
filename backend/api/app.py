@@ -43,8 +43,7 @@ try:
         secretkey=os.getenv("KIS_SECRET2"),
         keep_token=True,
     )
-    print(f"KIS Token: {kis.token}")
-    print(f"Pension KIS Token: {pension_kis.token}")
+
 except Exception as e:
     print(f"Error initializing PyKis: {e}")
     # Exit or handle the error appropriately if KIS initialization fails
@@ -76,61 +75,19 @@ class ProfitResponse(BaseModel):
 _history_cache = {}
 _history_cache_time = {}
 
-def _get_history(country: str, client: PyKis) -> List[Dict[str, Any]]:
-    """
-    Fetches and processes the daily order history for a given country using the specified KIS client.
-    Implements a simple in-memory cache to reduce API calls.
-    """
-    current_time = time.time()
-    cache_key = f"{client.account()}-{country}"
+# Caches for other API endpoints
+_account_balance_cache = {}
+_account_balance_cache_time = {}
+_pension_balance_cache = {}
+_pension_balance_cache_time = {}
+_ohlcv_cache = {}
+_ohlcv_cache_time = {}
+_current_price_cache = {}
+_current_price_cache_time = {}
+_ranking_charts_cache = {}
+_ranking_charts_cache_time = {}
 
-    # Check cache first
-    if cache_key in _history_cache and current_time - _history_cache_time.get(cache_key, 0) < 60:
-        return _history_cache[cache_key]
-
-    if not client:
-        raise HTTPException(status_code=500, detail="KIS client not initialized.")
-
-    # Get account and daily orders
-    account = client.account()
-    daily_orders: KisDailyOrders = account.daily_orders(
-        start=datetime.strptime('2021-01-01', '%Y-%m-%d').date(),
-        end=datetime.today().date(),
-        country=country
-    )
-
-    # Process orders into a standardized format
-    order_set = []
-    for order in daily_orders.orders:
-        if order.executed_qty != 0:
-            amount = order.price * order.executed_qty
-            quantity = order.executed_qty
-            if order.type == 'sell':
-                quantity = -quantity
-            else:
-                amount = -amount
-
-            order_data = {
-                'date': order.time.strftime('%Y-%m-%d'),
-                'time': order.time.strftime('%H:%M:%S'),
-                'ticker': order.symbol,
-                'order_type': order.type,
-                'currency': order.currency,
-                'price': float(order.price),
-                'quantity': float(quantity),
-                'amount': float(amount),
-                'fee': float(order.executed_amount) * -0.0025
-            }
-            if hasattr(order, 'exchange'):
-                order_data['exchange'] = order.exchange
-            order_set.append(order_data)
-
-    # Update cache
-    _history_cache[cache_key] = order_set
-    _history_cache_time[cache_key] = current_time
-
-    return order_set
-
+CACHE_TTL = 60 * 5 # 5 minutes (adjust as needed)
 
 # --- API Endpoints ---
 
@@ -164,212 +121,237 @@ async def get_valuation_profit(country: str = Query("US", description="Country c
 @app.get("/calculate_profit", response_model=ProfitResponse)
 async def calculate_profit(country: str = Query("US", description="Country code (US or KR)")):
     """
-    Calculates the realized profit/loss for each stock and for each year using FIFO method.
+    Calculates the realized profit/loss for each stock and for each year using KIS account.profits().
+    Includes a retry mechanism to handle connection errors.
     """
-    try:
-        order_set = _get_history(country, kis)
-        df = pd.DataFrame(order_set).sort_values(by=['date', 'time'])
-        df['date'] = pd.to_datetime(df['date'])
+    max_retries = 3
+    retry_delay = 1  # in seconds
 
-        if df.empty:
-            return {'yearly_total_profit': {}, 'stocks': []}
+    stocks_response = []
 
-        tickers = df['ticker'].unique()
-        yearly_total_profit = {}
-        stocks_response = []
+    for attempt in range(max_retries):
+        try:
+            if not kis:
+                raise HTTPException(status_code=500, detail="KIS client not initialized.")
 
-        for tic in tickers:
-            stock_yearly_profit = {}
-            dft = df[df['ticker'] == tic].copy()
-            holdings_queue = []  # FIFO queue for buy orders
+            profits_data = kis.account().profits(start=datetime(2021, 1, 1).date())
 
-            for _, row in dft.iterrows():
-                if row.order_type == 'buy':
-                    holdings_queue.append({'price': row.price, 'quantity': row.quantity})
-                elif row.order_type == 'sell':
-                    sell_year = str(row.date.year)
-                    sell_price = row.price
-                    quantity_to_sell = abs(row.quantity)
-                    
-                    yearly_total_profit.setdefault(sell_year, 0)
-                    stock_yearly_profit.setdefault(sell_year, 0)
+            yearly_total_profit = {}
+            stock_yearly_profits = {}
 
-                    while quantity_to_sell > 0 and holdings_queue:
-                        buy_order = holdings_queue[0]
-                        match_quantity = min(quantity_to_sell, buy_order['quantity'])
-                        
-                        profit = (sell_price * match_quantity * 0.9975) - (buy_order['price'] * match_quantity * 1.0025)
-                        
-                        yearly_total_profit[sell_year] += profit
-                        stock_yearly_profit[sell_year] += profit
-                        
-                        quantity_to_sell -= match_quantity
-                        buy_order['quantity'] -= match_quantity
-                        
-                        if buy_order['quantity'] < 1e-9:
-                            holdings_queue.pop(0)
-            
-            # Calculate remaining holdings
-            total_quantity = sum(h['quantity'] for h in holdings_queue)
-            total_cost = sum(h['price'] * h['quantity'] for h in holdings_queue)
-            avg_price = round(total_cost / total_quantity, 2) if total_quantity > 0 else 0
+            if profits_data and profits_data.orders:
+                for order in profits_data.orders:
+                    # Filter by country/market
+                    if country == 'US' and order.market not in ['NASDAQ', 'NYSE', 'AMS']:
+                        continue
+                    if country == 'KR' and order.market != 'KRX':
+                        continue
 
-            stock_holdings = {
-                'detail': [(h['price'], h['quantity']) for h in holdings_queue if h['quantity'] > 1e-9],
-                'total': total_quantity,
-                'avg_price': avg_price,
-                'exchange': dft.iloc[0].get('exchange', 'NASD' if country == 'US' else '')
+                    order_year = str(order.time_kst.year)
+                    ticker = order.symbol
+                    profit_amount = float(order.profit)
+
+                    yearly_total_profit.setdefault(order_year, 0.0)
+                    yearly_total_profit[order_year] += profit_amount
+
+                    stock_yearly_profits.setdefault(ticker, {})
+                    stock_yearly_profits[ticker].setdefault(order_year, 0.0)
+                    stock_yearly_profits[ticker][order_year] += profit_amount
+
+            stocks_response.clear()
+            for ticker, yearly_data in stock_yearly_profits.items():
+                stocks_response.append({
+                    ticker: {
+                        'yearly_profit': {year: round(p, 2) for year, p in yearly_data.items()},
+                        'holdings': {} # No holding info from profits() API, so keep empty
+                    }
+                })
+
+            final_response = {
+                'yearly_total_profit': {year: round(p, 2) for year, p in yearly_total_profit.items()},
+                'stocks': stocks_response
             }
+            
+            return final_response
 
-            stocks_response.append({
-                tic: {
-                    'yearly_profit': {year: round(p, 2) for year, p in stock_yearly_profit.items()},
-                    'holdings': stock_holdings
-                }
-            })
-
-        final_response = {
-            'yearly_total_profit': {year: round(p, 2) for year, p in yearly_total_profit.items()},
-            'stocks': stocks_response
-        }
-        
-        return final_response
-
-    except Exception as e:
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+        except requests.exceptions.ConnectionError as e:
+            if attempt < max_retries - 1:
+                print(f"Connection error in calculate_profit (attempt {attempt + 1}/{max_retries}): {e}. Retrying in {retry_delay}s...")
+                time.sleep(retry_delay)
+            else:
+                print(f"Failed to calculate profit after {max_retries} attempts.")
+                traceback.print_exc()
+                raise HTTPException(status_code=500, detail=f"Failed to calculate profit: {e}")
+        except Exception as e:
+            traceback.print_exc()
+            raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/account_balance")
 async def get_account_balance():
     """
     Fetches and returns the current account balance for the main account, including cash and stocks.
+    Includes a retry mechanism to handle connection errors.
     """
-    try:
-        if not kis:
-            raise HTTPException(status_code=500, detail="KIS client not initialized.")
+    current_time = time.time()
+    cache_key = "main_account_balance"
+
+    if cache_key in _account_balance_cache and current_time - _account_balance_cache_time.get(cache_key, 0) < CACHE_TTL:
+        return _account_balance_cache[cache_key]
+
+    max_retries = 3
+    retry_delay = 1  # in seconds
+
+    for attempt in range(max_retries):
+        try:
+            if not kis:
+                raise HTTPException(status_code=500, detail="KIS client not initialized.")
             
-        balance = kis.account().balance()
-        
-        # Process cash balances
-        krw_deposit = balance.deposits.get('KRW')
-        usd_deposit = balance.deposits.get('USD')
-        exchange_rate = usd_deposit.exchange_rate if usd_deposit and usd_deposit.exchange_rate else 1.0
-        
-        cash_response = {
-            "krw": krw_deposit.amount if krw_deposit else 0,
-            "usd": usd_deposit.amount if usd_deposit else 0,
-            "usd_in_krw": round((usd_deposit.amount if usd_deposit else 0) * exchange_rate)
-        }
+            balance = kis.account().balance()
+            
+            # Process cash balances
+            krw_deposit = balance.deposits.get('KRW')
+            usd_deposit = balance.deposits.get('USD')
+            exchange_rate = usd_deposit.exchange_rate if usd_deposit and usd_deposit.exchange_rate else 1.0
+            
+            cash_response = {
+                "krw": krw_deposit.amount if krw_deposit else 0,
+                "usd": usd_deposit.amount if usd_deposit else 0,
+                "usd_in_krw": round((usd_deposit.amount if usd_deposit else 0) * exchange_rate)
+            }
 
-        # Process stock balances
-        stocks_response = []
-        if balance.stocks:
-            for stock in balance.stocks:
-                stock_data = {
-                    "name": stock.name,
-                    "ticker": stock.symbol,
-                    "quantity": stock.qty,
-                    "profit_loss_ratio": stock.profit_rate,
-                    "market": stock.market,
-                }
-                if stock.market == 'KRX':
-                    stock_data.update({
-                        "average_price": round((stock.amount - stock.profit) / stock.qty, 2) if stock.qty > 0 else 0,
-                        "current_price": stock.price,
-                        "valuation": stock.amount,
-                        "profit_loss": stock.profit,
-                        "currency": "KRW"
-                    })
-                else: # Overseas stocks
-                    valuation_usd = stock.amount
-                    profit_loss_usd = stock.profit
-                    stock_data.update({
-                        "average_price": round((valuation_usd - profit_loss_usd) / stock.qty, 2) if stock.qty > 0 else 0,
-                        "current_price": round(stock.price, 2),
-                        "valuation": round(valuation_usd * exchange_rate),
-                        "valuation_usd": valuation_usd,
-                        "profit_loss": round(profit_loss_usd * exchange_rate),
-                        "profit_loss_usd": profit_loss_usd,
-                        "currency": "USD"
-                    })
-                stocks_response.append(stock_data)
+            # Process stock balances
+            stocks_response = []
+            if balance.stocks:
+                for stock in balance.stocks:
+                    stock_data = {
+                        "name": stock.name,
+                        "ticker": stock.symbol,
+                        "quantity": stock.qty,
+                        "profit_loss_ratio": stock.profit_rate,
+                        "market": stock.market,
+                    }
+                    if stock.market == 'KRX':
+                        stock_data.update({
+                            "average_price": round((stock.amount - stock.profit) / stock.qty, 2) if stock.qty > 0 else 0,
+                            "current_price": stock.price,
+                            "valuation": stock.amount,
+                            "profit_loss": stock.profit,
+                            "currency": "KRW"
+                        })
+                    else: # Overseas stocks
+                        valuation_usd = stock.amount
+                        profit_loss_usd = stock.profit
+                        stock_data.update({
+                            "average_price": round((valuation_usd - profit_loss_usd) / stock.qty, 2) if stock.qty > 0 else 0,
+                            "current_price": round(stock.price, 2),
+                            "valuation": round(valuation_usd * exchange_rate),
+                            "valuation_usd": valuation_usd,
+                            "profit_loss": round(profit_loss_usd * exchange_rate),
+                            "profit_loss_usd": profit_loss_usd,
+                            "currency": "USD"
+                        })
+                    stocks_response.append(stock_data)
 
-        return {
-            "cash": cash_response,
-            "stocks": stocks_response,
-            "exchange_rate": exchange_rate
-        }
+            response_data = {
+                "cash": cash_response,
+                "stocks": stocks_response,
+                "exchange_rate": exchange_rate
+            }
+            _account_balance_cache[cache_key] = response_data
+            _account_balance_cache_time[cache_key] = current_time
+            return response_data
 
-    except Exception as e:
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+        except requests.exceptions.ConnectionError as e:
+            if attempt < max_retries - 1:
+                print(f"Connection error in get_account_balance (attempt {attempt + 1}/{max_retries}): {e}. Retrying in {retry_delay}s...")
+                time.sleep(retry_delay)
+            else:
+                print(f"Failed to fetch account balance after {max_retries} attempts.")
+                traceback.print_exc()
+                raise HTTPException(status_code=500, detail=f"Failed to fetch account balance: {e}")
+        except Exception as e:
+            traceback.print_exc()
+            raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/account_balance_pension")
 async def get_account_balance_pension():
     """
     Fetches and returns the current account balance for the pension account.
+    Includes a retry mechanism to handle connection errors.
     """
-    try:
-        if not pension_kis:
-            raise HTTPException(status_code=500, detail="Pension KIS client not initialized.")
+    max_retries = 3
+    retry_delay = 1  # in seconds
 
-        balance = pension_kis.account().balance()
-        
-        # Process cash balances
-        krw_deposit = balance.deposits.get('KRW')
-        usd_deposit = balance.deposits.get('USD')
-        exchange_rate = usd_deposit.exchange_rate if usd_deposit and usd_deposit.exchange_rate else 1.0
-        
-        cash_response = {
-            "krw": krw_deposit.amount if krw_deposit else 0,
-            "usd": usd_deposit.amount if usd_deposit else 0,
-            "usd_in_krw": round((usd_deposit.amount if usd_deposit else 0) * exchange_rate)
-        }
+    for attempt in range(max_retries):
+        try:
+            if not pension_kis:
+                raise HTTPException(status_code=500, detail="Pension KIS client not initialized.")
 
-        # Process stock balances
-        stocks_response = []
-        if balance.stocks:
-            for stock in balance.stocks:
-                stock_data = {
-                    "name": stock.name,
-                    "ticker": stock.symbol,
-                    "quantity": stock.qty,
-                    "profit_loss_ratio": stock.profit_rate,
-                    "market": stock.market,
-                }
-                if stock.market == 'KRX':
-                     stock_data.update({
-                        "average_price": round((stock.amount - stock.profit) / stock.qty, 2) if stock.qty > 0 else 0,
-                        "current_price": stock.price,
-                        "valuation": stock.amount,
-                        "profit_loss": stock.profit,
-                        "currency": "KRW"
-                    })
-                else: # Overseas stocks
-                    valuation_usd = stock.amount
-                    profit_loss_usd = stock.profit
-                    stock_data.update({
-                        "average_price": round((valuation_usd - profit_loss_usd) / stock.qty, 2) if stock.qty > 0 else 0,
-                        "current_price": round(stock.price, 2),
-                        "valuation": round(valuation_usd * exchange_rate),
-                        "valuation_usd": valuation_usd,
-                        "profit_loss": round(profit_loss_usd * exchange_rate),
-                        "profit_loss_usd": profit_loss_usd,
-                        "currency": "USD"
-                    })
-                stocks_response.append(stock_data)
+            balance = pension_kis.account().balance()
+            
+            # Process cash balances
+            krw_deposit = balance.deposits.get('KRW')
+            usd_deposit = balance.deposits.get('USD')
+            exchange_rate = usd_deposit.exchange_rate if usd_deposit and usd_deposit.exchange_rate else 1.0
+            
+            cash_response = {
+                "krw": krw_deposit.amount if krw_deposit else 0,
+                "usd": usd_deposit.amount if usd_deposit else 0,
+                "usd_in_krw": round((usd_deposit.amount if usd_deposit else 0) * exchange_rate)
+            }
 
-        return {
-            "cash": cash_response,
-            "stocks": stocks_response,
-            "exchange_rate": exchange_rate
-        }
+            # Process stock balances
+            stocks_response = []
+            if balance.stocks:
+                for stock in balance.stocks:
+                    stock_data = {
+                        "name": stock.name,
+                        "ticker": stock.symbol,
+                        "quantity": stock.qty,
+                        "profit_loss_ratio": stock.profit_rate,
+                        "market": stock.market,
+                    }
+                    if stock.market == 'KRX':
+                        stock_data.update({
+                            "average_price": round((stock.amount - stock.profit) / stock.qty, 2) if stock.qty > 0 else 0,
+                            "current_price": stock.price,
+                            "valuation": stock.amount,
+                            "profit_loss": stock.profit,
+                            "currency": "KRW"
+                        })
+                    else: # Overseas stocks
+                        valuation_usd = stock.amount
+                        profit_loss_usd = stock.profit
+                        stock_data.update({
+                            "average_price": round((valuation_usd - profit_loss_usd) / stock.qty, 2) if stock.qty > 0 else 0,
+                            "current_price": round(stock.price, 2),
+                            "valuation": round(valuation_usd * exchange_rate),
+                            "valuation_usd": valuation_usd,
+                            "profit_loss": round(profit_loss_usd * exchange_rate),
+                            "profit_loss_usd": profit_loss_usd,
+                            "currency": "USD"
+                        })
+                    stocks_response.append(stock_data)
 
-    except Exception as e:
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+            return {
+                "cash": cash_response,
+                "stocks": stocks_response,
+                "exchange_rate": exchange_rate
+            }
+
+        except requests.exceptions.ConnectionError as e:
+            if attempt < max_retries - 1:
+                print(f"Connection error in get_account_balance_pension (attempt {attempt + 1}/{max_retries}): {e}. Retrying in {retry_delay}s...")
+                time.sleep(retry_delay)
+            else:
+                print(f"Failed to fetch pension account balance after {max_retries} attempts.")
+                traceback.print_exc()
+                raise HTTPException(status_code=500, detail=f"Failed to fetch pension account balance: {e}")
+        except Exception as e:
+            traceback.print_exc()
+            raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/ohlcv")

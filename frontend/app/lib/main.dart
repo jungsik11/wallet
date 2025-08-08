@@ -14,6 +14,7 @@ import 'package:app/services/wallet_api_service.dart';
 import 'package:app/chatbot_screen.dart'; // Add this line
 import 'package:app/responsive_text.dart'; // Add this line
 import 'package:app/home_screen.dart';
+import 'package:app/ranking_screen.dart';
 
 
 void main() {
@@ -121,7 +122,7 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
         children: [
           _buildHomeTab(),
           // 시세 탭 (빈 화면)
-          const Center(child: Text('시세 화면')),
+          const RankingScreen(),
           // 자산 탭 (주식, 연금 슬라이드)
           PageView(
             children: [

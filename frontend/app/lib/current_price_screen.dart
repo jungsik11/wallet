@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:convert';
 import 'package:syncfusion_flutter_charts/charts.dart';
-import 'package:app/services/wallet_api_service.dart'; // Add this import
+import 'package:app/services/wallet_api_service.dart';
 
 class ChartData {
   ChartData(this.x, this.open, this.high, this.low, this.close);
@@ -22,12 +22,41 @@ class CurrentPriceScreen extends StatefulWidget {
 class _CurrentPriceScreenState extends State<CurrentPriceScreen> {
   final TextEditingController _tickerController = TextEditingController();
   List<ChartData> _chartData = [];
+  List<dynamic> _rankingData = [];
   bool _isLoading = false;
   String? _error;
-  String _selectedInterval = '1D'; // 1m, 1h, 1D
+  String _selectedInterval = '1D';
   final List<bool> _isSelected = [false, false, true];
 
-  final WalletApiService _apiService = WalletApiService(); // Add this
+  final WalletApiService _apiService = WalletApiService();
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchRankingData();
+  }
+
+  Future<void> _fetchRankingData() async {
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
+
+    try {
+      final rankingData = await _apiService.fetchRankingData();
+      setState(() {
+        _rankingData = rankingData;
+      });
+    } catch (e) {
+      setState(() {
+        _error = '순위 데이터를 불러오는 데 실패했습니다: ${e.toString()}';
+      });
+    } finally {
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
 
   Future<void> _fetchChartData() async {
     if (_tickerController.text.isEmpty) {
@@ -41,15 +70,12 @@ class _CurrentPriceScreenState extends State<CurrentPriceScreen> {
 
     try {
       final ticker = _tickerController.text.toUpperCase();
-      // Use WalletApiService to fetch data
       final responseData = await _apiService.fetchOhlcvData(ticker, _selectedInterval);
-
-      // Extract the actual chart data list from the response map
       final List<dynamic> chartRawData = responseData['data'];
 
       final List<ChartData> processedData = chartRawData.map((item) {
         return ChartData(
-          DateTime.parse(item['time']),
+          DateTime.parse(item['date']),
           item['open'].toDouble(),
           item['high'].toDouble(),
           item['low'].toDouble(),
@@ -116,13 +142,12 @@ class _CurrentPriceScreenState extends State<CurrentPriceScreen> {
             ),
             const SizedBox(height: 20),
             Expanded(
-              child: _isLoading
+              child: _isLoading && _chartData.isEmpty
                   ? const Center(child: CircularProgressIndicator())
                   : _error != null
                       ? Center(child: Text(_error!, style: const TextStyle(color: Colors.red)))
-                      : _chartData.isEmpty
-                          ? const Center(child: Text('종목을 검색해주세요.'))
-                          : SfCartesianChart(
+                      : _chartData.isNotEmpty
+                          ? SfCartesianChart(
                               primaryXAxis: const DateTimeAxis(),
                               series: <CandleSeries>[
                                 CandleSeries<ChartData, DateTime>(
@@ -134,6 +159,39 @@ class _CurrentPriceScreenState extends State<CurrentPriceScreen> {
                                   closeValueMapper: (ChartData data, _) => data.close,
                                 ),
                               ],
+                            )
+                          : const Center(child: Text('종목을 검색해주세요.')),
+            ),
+            const SizedBox(height: 20),
+            const Text('수익률 순위', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            Expanded(
+              child: _isLoading && _rankingData.isEmpty
+                  ? const Center(child: CircularProgressIndicator())
+                  : _error != null && _rankingData.isEmpty
+                      ? Center(child: Text(_error!, style: const TextStyle(color: Colors.red)))
+                      : _rankingData.isEmpty
+                          ? const Center(child: Text('순위 데이터가 없습니다.'))
+                          : SingleChildScrollView(
+                              child: DataTable(
+                                columns: const [
+                                  DataColumn(label: Text('순위')),
+                                  DataColumn(label: Text('종목명')),
+                                  DataColumn(label: Text('현재가')),
+                                  DataColumn(label: Text('등락률')),
+                                ],
+                                rows: _rankingData.asMap().entries.map((entry) {
+                                  int index = entry.key;
+                                  var stock = entry.value;
+                                  return DataRow(
+                                    cells: [
+                                      DataCell(Text((index + 1).toString())),
+                                      DataCell(Text(stock['name'] ?? 'N/A')),
+                                      DataCell(Text(stock['price']?.toString() ?? 'N/A')),
+                                      DataCell(Text('${stock['rate']?.toString() ?? 'N/A'}%')),
+                                    ],
+                                  );
+                                }).toList(),
+                              ),
                             ),
             ),
           ],

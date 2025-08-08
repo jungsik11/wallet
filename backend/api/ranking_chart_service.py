@@ -3,6 +3,7 @@ Service to fetch candlestick chart data for top-ranked stocks from the KIS API.
 """
 
 import os
+import time
 from typing import Any, Dict, List
 
 import requests
@@ -37,8 +38,8 @@ def _fetch_kis_api(
 
     headers = BASE_HEADERS.copy()
     headers["authorization"] = str(token)
-    headers["appkey"] = kis._appkey
-    headers["appsecret"] = kis._secretkey
+    headers["appkey"] = os.getenv("KIS_APPKEY")
+    headers["appsecret"] = os.getenv("KIS_SECRET")
     headers["tr_id"] = tr_id
     headers["custtype"] = "P"
 
@@ -75,7 +76,7 @@ def _get_top_ranked_stocks(kis: PyKis) -> List[Dict[str, Any]]:
                 try:
                     rate_val = float(item.get('rate', 0.0))
                     all_stocks.append({
-                        "name": item.get('hnam', ''), # Changed from 'name' to 'hnam'
+                        "name": item.get('name', '이름 없음'), # Changed from 'name' to 'hnam'
                         "exch": item.get('excd', ''), 
                         "ticker": item.get('symb', ''), # Changed from 'last' to 'symb'
                         "price": item.get('last', 0.0),
@@ -120,6 +121,8 @@ def get_charts_for_ranked_stocks(
         ticker = stock_info.get('ticker')
         if not ticker:
             continue
+
+        time.sleep(0.5) # Add a delay to avoid API rate limiting
 
         try:
             stock_obj = kis.stock(ticker) # Specify exchange
