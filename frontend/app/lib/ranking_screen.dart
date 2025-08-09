@@ -17,6 +17,24 @@ class _RankingScreenState extends State<RankingScreen> with AutomaticKeepAliveCl
   final WalletApiService _apiService = WalletApiService();
   final NumberFormat _numberFormat = NumberFormat('#,###');
 
+  String formatPrice(dynamic price) {
+    if (price == null) {
+      return 'N/A';
+    }
+    // Safely parse the dynamic price to a double
+    double? value = double.tryParse(price.toString());
+
+    if (value == null) {
+      return 'N/A'; // Return N/A if parsing fails
+    }
+
+    // Use NumberFormat to remove unnecessary trailing zeros
+    // The pattern '#.####' means show up to 4 decimal places, but remove trailing zeros.
+    // If you need more decimal places, adjust the number of #.
+    final formatter = NumberFormat('#.####');
+    return formatter.format(value);
+  }
+
   @override
   bool get wantKeepAlive => true;
 
@@ -101,10 +119,9 @@ class _RankingScreenState extends State<RankingScreen> with AutomaticKeepAliveCl
       physics: const AlwaysScrollableScrollPhysics(),
       child: DataTable(
         columns: const [
-          DataColumn(label: Text('순위')),
+          DataColumn(label: Text('순위'), columnWidth: FixedColumnWidth(50)),
           DataColumn(label: Text('종목명')),
-          DataColumn(label: Text('현재가')),
-          DataColumn(label: Text('등락')),
+          DataColumn(label: Text('현재가'), columnWidth: FixedColumnWidth(120)),
           DataColumn(label: Text('등락률')),
           DataColumn(label: Text('거래량')),
         ],
@@ -116,7 +133,7 @@ class _RankingScreenState extends State<RankingScreen> with AutomaticKeepAliveCl
           final double diff = double.tryParse(stock['diff']?.toString() ?? '') ?? 0.0;
           final double rate = double.tryParse(stock['rate']?.toString() ?? '') ?? 0.0;
           final int volume = int.tryParse(stock['volume']?.toString() ?? '') ?? 0;
-          final String price = stock['price']?.toString() ?? 'N/A';
+          final String price = formatPrice(stock['price']);
 
           return DataRow(
             cells: [
@@ -131,11 +148,17 @@ class _RankingScreenState extends State<RankingScreen> with AutomaticKeepAliveCl
                   ),
                 ),
               ),
-              DataCell(Text(price)),
               DataCell(
-                Text(
-                  diff.toStringAsFixed(2), // Display diff with 2 decimal places
-                  style: TextStyle(color: diff >= 0 ? Colors.green : Colors.red),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(price),
+                    Text(
+                      '(${diff.toStringAsFixed(2)})',
+                      style: TextStyle(color: diff >= 0 ? Colors.green : Colors.red, fontSize: 12),
+                    ),
+                  ],
                 ),
               ),
               DataCell(
