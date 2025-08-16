@@ -1,9 +1,0 @@
-feat: Implement Uptrend Momentum Screener and API Integration
-
-- Implemented a new trading algorithm (Uptrend Momentum Screener) to identify buy/sell signals based on market hours, price/change criteria, and daily/minute trend analysis.
-- Added `trend_analysis.py` for reusable trend calculation logic.
-- Developed `trade_aggregator.py` for tracking and summarizing simulated trades.
-- Created `live_screener_runner.py` for real-time execution and observation of the algorithm.
-- Integrated stock ranking chart functionality into the FastAPI application (`app.py`) via `ranking_chart_service.py`.
-- Added comprehensive unit tests for the new algorithm and API endpoints.
-- Refactored existing code for improved readability, maintainability, and error handling.
