@@ -4,8 +4,9 @@ import 'package:app/responsive_text.dart';
 
 class PensionScreen extends StatefulWidget {
   final Map<String, dynamic> pensionBalanceData;
+  final Future<void> Function() onRefresh;
 
-  const PensionScreen({super.key, required this.pensionBalanceData});
+  const PensionScreen({super.key, required this.pensionBalanceData, required this.onRefresh});
 
   @override
   State<PensionScreen> createState() => _PensionScreenState();
@@ -28,9 +29,11 @@ class _PensionScreenState extends State<PensionScreen> {
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
+      body: RefreshIndicator(
+        onRefresh: widget.onRefresh,
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Card(
@@ -114,6 +117,7 @@ class _PensionScreenState extends State<PensionScreen> {
           ],
         ),
       ),
+    )
     );
   }
 }

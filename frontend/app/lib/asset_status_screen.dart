@@ -6,11 +6,13 @@ import 'responsive_text.dart';
 class AssetStatusScreen extends StatefulWidget {
   final List<dynamic> usBalanceData;
   final List<dynamic> krBalanceData;
+  final Future<void> Function() onRefresh;
 
   const AssetStatusScreen({
     super.key,
     required this.usBalanceData,
     required this.krBalanceData,
+    required this.onRefresh,
   });
 
   @override
@@ -74,10 +76,7 @@ class _AssetStatusScreenState extends State<AssetStatusScreen> {
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       body: RefreshIndicator(
-        onRefresh: () async {
-          // 데이터는 main.dart에서 관리하므로 여기서는 새로고침 로직이 필요 없음
-          // 필요하다면 main.dart의 _fetchData를 다시 호출하도록 구현
-        },
+        onRefresh: widget.onRefresh,
         child: _balanceData == null
             ? const Center(child: Text('데이터를 불러오는데 실패했습니다.'))
             : SingleChildScrollView(
