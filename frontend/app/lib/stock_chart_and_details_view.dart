@@ -43,6 +43,10 @@ class _StockChartAndDetailsViewState extends State<StockChartAndDetailsView> {
 
   final WalletApiService _apiService = WalletApiService();
 
+  // Add TextEditingController for search
+  late TextEditingController _searchController;
+  late String _currentTicker; // To hold the ticker being displayed/searched
+
   String formatPrice(dynamic price) {
     if (price == null) {
       return 'N/A';
@@ -58,6 +62,8 @@ class _StockChartAndDetailsViewState extends State<StockChartAndDetailsView> {
   @override
   void initState() {
     super.initState();
+    _currentTicker = widget.ticker; // Initialize with the passed ticker
+    _searchController = TextEditingController(text: _currentTicker); // Set initial text
     _fetchStockData();
   }
 
@@ -65,12 +71,22 @@ class _StockChartAndDetailsViewState extends State<StockChartAndDetailsView> {
   void didUpdateWidget(covariant StockChartAndDetailsView oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.ticker != oldWidget.ticker) {
+      _currentTicker = widget.ticker; // Update if parent widget changes ticker
+      _searchController.text = _currentTicker; // Update search field
       _fetchStockData();
     }
   }
 
+  @override
+  void dispose() {
+    _searchController.dispose(); // Dispose the controller
+    super.dispose();
+  }
+
   Future<void> _fetchStockData() async {
-    if (widget.ticker.isEmpty) {
+    final tickerToFetch = _currentTicker.isNotEmpty ? _currentTicker : widget.ticker; // Use search input if available
+
+    if (tickerToFetch.isEmpty) {
       setState(() {
         _error = '티커가 제공되지 않았습니다.';
         _stockDetail = null;
@@ -87,8 +103,8 @@ class _StockChartAndDetailsViewState extends State<StockChartAndDetailsView> {
     });
 
     try {
-      final stockDetailData = await _apiService.fetchStockDetail(widget.ticker);
-      final ohlcvData = await _apiService.fetchOhlcvData(widget.ticker, _selectedTimeframe);
+      final stockDetailData = await _apiService.fetchStockDetail(tickerToFetch);
+      final ohlcvData = await _apiService.fetchOhlcvData(tickerToFetch, _selectedTimeframe);
 
       final List<dynamic> chartRawData = ohlcvData['data'];
 
@@ -101,9 +117,15 @@ class _StockChartAndDetailsViewState extends State<StockChartAndDetailsView> {
         }
       });
     } catch (e) {
-      setState(() {
-        _error = '데이터를 불러오는 데 실패했습니다: ${e.toString()}';
-      });
+      if (e.toString().contains('404')) {
+        setState(() {
+          _error = '티커를 찾을 수 없습니다. 정확한 티커를 입력해주세요.';
+        });
+      } else {
+        setState(() {
+          _error = '데이터를 불러오는 데 실패했습니다: ${e.toString()}';
+        });
+      }
     } finally {
       setState(() {
         _isLoading = false;
@@ -146,22 +168,55 @@ class _StockChartAndDetailsViewState extends State<StockChartAndDetailsView> {
 
     return SingleChildScrollView(
       child: Padding(
-        padding: const EdgeInsets.all(8.0),
+        padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            const SizedBox(height: kToolbarHeight), // Add this line
+            // Search Bar
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
+              child: TextField(
+                controller: _searchController,
+                decoration: InputDecoration(
+                  labelText: '종목 검색 (예: PLTR)',
+                  suffixIcon: IconButton(
+                    icon: const Icon(Icons.search),
+                    onPressed: () {
+                      setState(() {
+                        _currentTicker = _searchController.text.trim();
+                      });
+                      _fetchStockData();
+                    },
+                  ),
+                  border: const OutlineInputBorder(),
+                ),
+                onSubmitted: (value) {
+                  setState(() {
+                    _currentTicker = value.trim();
+                  });
+                  _fetchStockData();
+                },
+              ),
+            ),
+            const SizedBox(height: 16), // Spacing after search bar
             Text('종목명: ${_stockDetail!['name'] ?? 'N/A'}', style: Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: 10),
             Text('현재가: ${formatPrice(_stockDetail!['price'])} ', style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 5),
-            Text('등락: ${formatPrice(_stockDetail!['diff'])} ', style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 5),
+            
             Text('등락률: ${formatPrice(_stockDetail!['rate'])}%', style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 5),
             Text('거래량: ${_stockDetail!['volume'] ?? 'N/A'}', style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 20),
+            // Chart Title
+            Text(
+              '${_stockDetail!['name'] ?? 'N/A'} (${_stockDetail!['ticker'] ?? 'N/A'}) 차트',
+              style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 10),
             // Timeframe ToggleButtons
-            if (widget.ticker.isNotEmpty)
+            if (_currentTicker.isNotEmpty) // Use _currentTicker instead of widget.ticker
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 8.0),
                 child: ToggleButtons(
@@ -193,9 +248,14 @@ class _StockChartAndDetailsViewState extends State<StockChartAndDetailsView> {
             const SizedBox(height: 20),
             // Candlestick Chart
             SizedBox(
-              height: 300, // Adjust height as needed
+              height: MediaQuery.of(context).size.height * 0.4, // Responsive height
               child: _chartData.isEmpty
-                  ? Center(child: Text('차트 데이터가 없습니다.', style: TextStyle(color: theme.colorScheme.onSurface.withOpacity(0.7))))
+                  ? Center(
+                      child: Text(
+                        _error != null ? _error! : '차트 데이터가 없습니다.',
+                        style: TextStyle(color: theme.colorScheme.onSurface.withOpacity(0.7)),
+                      ),
+                    )
                   : SfCartesianChart(
                       backgroundColor: Colors.transparent,
                       plotAreaBackgroundColor: Colors.transparent,
@@ -211,12 +271,13 @@ class _StockChartAndDetailsViewState extends State<StockChartAndDetailsView> {
                           color: theme.colorScheme.surface, // Use theme surface color
                           borderColor: theme.colorScheme.outline, // Use theme outline color
                           borderWidth: 1,
+                          format: 'point.x\nOpen: point.open\nHigh: point.high\nLow: point.low\nClose: point.close\nVolume: point.volume', // Custom tooltip format
                         ),
                       ),
                       primaryXAxis: DateTimeAxis(
                         dateFormat: _getDateFormat(),
                         majorGridLines: const MajorGridLines(width: 0),
-                        labelStyle: TextStyle(color: theme.colorScheme.onSurface.withOpacity(0.7), fontSize: 10), // Label color
+                        labelStyle: TextStyle(color: theme.colorScheme.onSurface, fontSize: 12), // Increased font size
                         axisLine: AxisLine(width: 0, color: theme.colorScheme.outline), // Axis line color
                       ),
                       primaryYAxis: NumericAxis(
@@ -230,10 +291,10 @@ class _StockChartAndDetailsViewState extends State<StockChartAndDetailsView> {
                           } else {
                             formattedText = NumberFormat.compactSimpleCurrency(locale: 'en_US').format(value);
                           }
-                          return ChartAxisLabel(formattedText, TextStyle(color: theme.colorScheme.onSurface.withOpacity(0.7), fontSize: 10)); // Label color
+                          return ChartAxisLabel(formattedText, TextStyle(color: theme.colorScheme.onSurface, fontSize: 12)); // Increased font size
                         },
                         axisLine: AxisLine(width: 0, color: theme.colorScheme.outline), // Axis line color
-                        majorGridLines: MajorGridLines(width: 0.5, color: theme.colorScheme.outline.withOpacity(0.5), dashArray: const <double>[2, 2]), // Grid line color
+                        majorGridLines: MajorGridLines(width: 0.5, color: theme.colorScheme.outline.withOpacity(0.3), dashArray: const <double>[2, 2]), // More subtle gridlines
                       ),
                       series: <CandleSeries<_ChartData, DateTime>>[
                         CandleSeries<_ChartData, DateTime>(
@@ -244,8 +305,8 @@ class _StockChartAndDetailsViewState extends State<StockChartAndDetailsView> {
                           openValueMapper: (_ChartData data, _) => data.open,
                           closeValueMapper: (_ChartData data, _) => data.close,
                           enableSolidCandles: true,
-                          bullColor: Colors.greenAccent[400]!, // Green for bullish
-                          bearColor: Colors.redAccent[400]!, // Red for bearish
+                          bullColor: Colors.green.shade700, // Darker green for bullish
+                          bearColor: Colors.red.shade700, // Darker red for bearish
                         )
                       ],
                     ),
@@ -256,3 +317,4 @@ class _StockChartAndDetailsViewState extends State<StockChartAndDetailsView> {
     );
   }
 }
+

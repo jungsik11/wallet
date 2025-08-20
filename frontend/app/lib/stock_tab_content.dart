@@ -31,6 +31,7 @@ class _StockTabContentState extends State<StockTabContent> with SingleTickerProv
   Widget build(BuildContext context) {
     return Column(
       children: [
+        const SizedBox(height: kToolbarHeight), // Add this line
         TabBar(
           controller: _subTabController,
           labelStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),

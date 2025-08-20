@@ -359,6 +359,12 @@ async def get_ohlcv(ticker: str, timeframe: str = Query('D', description="Timefr
     """
     Fetches OHLCV (Open, High, Low, Close, Volume) data for a given ticker.
     """
+    current_time = time.time()
+    cache_key = f"ohlcv_{ticker}_{timeframe}"
+
+    if cache_key in _ohlcv_cache and current_time - _ohlcv_cache_time.get(cache_key, 0) < CACHE_TTL:
+        return _ohlcv_cache[cache_key]
+
     try:
         if not kis:
             raise HTTPException(status_code=500, detail="KIS client not initialized.")
@@ -366,59 +372,69 @@ async def get_ohlcv(ticker: str, timeframe: str = Query('D', description="Timefr
         stock = kis.stock(ticker)
         if not stock:
             raise HTTPException(status_code=404, detail=f"Ticker {ticker} not found")
-
-        # Determine chart parameters based on timeframe
+        
+        chart = None
         if timeframe == 'D':
             chart = stock.chart("1y")
-        elif timeframe == 'W':
-            chart = stock.chart("5y")
+        elif timeframe == 'H':
+            chart = stock.chart("5d", period=60)
         elif timeframe == 'M':
-            chart = stock.chart("10y")
+            chart = stock.chart("1d", period=1)
         else:
-            raise HTTPException(status_code=400, detail="Invalid timeframe. Use 'D', 'W', or 'M'.")
+            raise HTTPException(status_code=400, detail=f"Invalid timeframe. Use 'D', 'H', or 'M'.")
 
         if not chart or not chart.bars:
             return {"market": stock.market, "data": []}
 
-        # Unified data processing path
-        df = pd.DataFrame([bar.model_dump() for bar in chart.bars])
-        df['time'] = pd.to_datetime(df['time'])
-        df.set_index('time', inplace=True)
-
-        if timeframe in ['W', 'M']:
-            resample_period = 'W-MON' if timeframe == 'W' else 'M'
-            ohlc_dict = {'open': 'first', 'high': 'max', 'low': 'min', 'close': 'last', 'volume': 'sum'}
-            df = df.resample(resample_period, label='left').agg(ohlc_dict).dropna()
-        
-        df.reset_index(inplace=True)
-        df.rename(columns={'time': 'date'}, inplace=True)
-        df['date'] = pd.to_datetime(df['date']).dt.strftime('%Y-%m-%d')
-        
-        # Ensure correct data types for serialization
-        df[['open', 'high', 'low', 'close']] = df[['open', 'high', 'low', 'close']].astype(float)
-        df['volume'] = df['volume'].astype(int)
-
-        ohlcv_data = df[['date', 'open', 'high', 'low', 'close', 'volume']].to_dict(orient='records')
-
-        return {"market": stock.market, "data": ohlcv_data}
+        ohlcv_data = [
+            {
+                "date": bar.time.isoformat(),
+                "open": bar.open,
+                "high": bar.high,
+                "low": bar.low,
+                "close": bar.close,
+                "volume": bar.volume
+            } for bar in chart.bars
+        ]
+        response_data = {"market": stock.market, "data": ohlcv_data}
+        _ohlcv_cache[cache_key] = response_data
+        _ohlcv_cache_time[cache_key] = current_time
+        return response_data
     except Exception as e:
-        traceback.print_exc()
+        print(f"Error getting ohlcv for {ticker}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/current_price/{ticker}")
-async def get_current_price(ticker: str):
+@app.get("/stock/detail")
+async def get_stock_detail(ticker: str = Query(..., description="Stock ticker")):
     """
-    Fetches the current price for a given stock ticker.
+    Fetches detailed information for a given stock ticker.
     """
+    current_time = time.time()
+    cache_key = f"stock_detail_{ticker}"
+
+    if cache_key in _current_price_cache and current_time - _current_price_cache_time.get(cache_key, 0) < CACHE_TTL:
+        return _current_price_cache[cache_key]
+
     try:
         if not kis:
             raise HTTPException(status_code=500, detail="KIS client not initialized.")
-        price = kis.stock(ticker).quote().price
-        return {"current_price": price}
+        
+        quote = kis.stock(ticker).quote()
+        
+        stock_data = {
+            "name": kis.stock(ticker).name,
+            "price": quote.price,
+            "rate": quote.rate,
+            "volume": quote.volume,
+        }
+        _current_price_cache[cache_key] = stock_data
+        _current_price_cache_time[cache_key] = current_time
+        return stock_data
+
     except Exception as e:
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Error fetching price for {ticker}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/ranking/charts")

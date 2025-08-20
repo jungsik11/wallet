@@ -85,6 +85,7 @@ class _AssetStatusScreenState extends State<AssetStatusScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    const SizedBox(height: kToolbarHeight), // Add this line
                     _buildTotalAssetSection(currencyFormat, usdCurrencyFormat),
                     const SizedBox(height: 12),
                     _buildCashSection(currencyFormat, usdCurrencyFormat),

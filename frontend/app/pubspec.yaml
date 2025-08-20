@@ -39,6 +39,7 @@ dependencies:
   intl: ^0.20.2
   flutter_localizations:
     sdk: flutter
+  trading_view_charts: ^0.0.2 # Add this line
 
 dev_dependencies:
   flutter_test:

@@ -14,6 +14,7 @@ import 'package:app/chatbot_screen.dart'; // Add this line
 import 'package:app/home_screen.dart';
 import 'package:app/ranking_screen.dart';
 import 'package:app/stock_tab_content.dart'; // Add this line
+import 'package:app/stock_chart_and_details_view.dart';
 
 
 void main() {
@@ -110,10 +111,7 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Wallet'),
-        titleSpacing: 0.0, // Remove leading space next to title
-      ),
+      
       bottomNavigationBar: Builder( // Use Builder to get a new context for MediaQuery
         builder: (BuildContext innerContext) {
           final double screenWidth = MediaQuery.of(innerContext).size.width;
@@ -159,7 +157,7 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
           // 수익 현황 탭
           _buildProfitTab(),
           // 현재가 탭
-          Container(), // Placeholder for removed CandlestickChartScreen
+          const StockChartAndDetailsView(ticker: 'PLTR'),
           // New dummy tabs
           Center(child: Text('Dummy Tab 1')),
           Center(child: Text('Dummy Tab 2')),

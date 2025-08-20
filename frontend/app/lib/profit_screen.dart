@@ -219,6 +219,7 @@ class _ProfitScreenState extends State<ProfitScreen> {
       backgroundColor: theme.scaffoldBackgroundColor, // Apply theme background color
       body: Column(
         children: [
+          const SizedBox(height: kToolbarHeight), // Add this line
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
             child: Row(
