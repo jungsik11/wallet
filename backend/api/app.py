@@ -87,6 +87,10 @@ _current_price_cache_time = {}
 _ranking_charts_cache = {}
 _ranking_charts_cache_time = {}
 
+# Cache for orderbook
+_orderbook_cache = {}
+_orderbook_cache_time = {}
+
 CACHE_TTL = 60 * 5 # 5 minutes (adjust as needed)
 
 # --- API Endpoints ---
@@ -431,6 +435,49 @@ async def get_stock_detail(ticker: str = Query(..., description="Stock ticker"))
         _current_price_cache[cache_key] = stock_data
         _current_price_cache_time[cache_key] = current_time
         return stock_data
+
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/orderbook/{ticker}")
+async def get_orderbook(ticker: str):
+    """
+    Fetches the order book (asks and bids) for a given stock ticker.
+    Note: Order book data is only available for domestic (KRX) stocks.
+    """
+    current_time = time.time()
+    cache_key = f"orderbook_{ticker}"
+
+    if cache_key in _orderbook_cache and current_time - _orderbook_cache_time.get(cache_key, 0) < CACHE_TTL:
+        return _orderbook_cache[cache_key]
+
+    try:
+        if not kis:
+            raise HTTPException(status_code=500, detail="KIS client not initialized.")
+        
+        stock = kis.stock(ticker)
+        
+        if stock.market == 'KRX':
+            # Domestic stock
+            orderbook = stock.orderbook()
+            asks = [{"price": order.price, "size": order.volume} for order in orderbook.asks]
+            bids = [{"price": order.price, "size": order.volume} for order in orderbook.bids]
+            response_data = {
+                "asks": asks,
+                "bids": bids,
+            }
+        else:
+            # Foreign stock - order book not available
+            response_data = {
+                "asks": [],
+                "bids": [],
+            }
+
+        _orderbook_cache[cache_key] = response_data
+        _orderbook_cache_time[cache_key] = current_time
+        return response_data
 
     except Exception as e:
         traceback.print_exc()

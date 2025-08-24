@@ -3,6 +3,7 @@ import 'package:app/services/wallet_api_service.dart';
 import 'package:intl/intl.dart';
 import 'package:syncfusion_flutter_charts/charts.dart';
 import 'package:app/responsive_text.dart'; // Assuming this is needed for chart labels
+import 'package:app/stock_trading_screen.dart';
 
 class StockChartAndDetailsView extends StatefulWidget {
   final String ticker;
@@ -172,149 +173,11 @@ class _StockChartAndDetailsViewState extends State<StockChartAndDetailsView> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const SizedBox(height: kToolbarHeight), // Add this line
-            // Search Bar
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
-              child: TextField(
-                controller: _searchController,
-                decoration: InputDecoration(
-                  labelText: '종목 검색 (예: PLTR)',
-                  suffixIcon: IconButton(
-                    icon: const Icon(Icons.search),
-                    onPressed: () {
-                      setState(() {
-                        _currentTicker = _searchController.text.trim();
-                      });
-                      _fetchStockData();
-                    },
-                  ),
-                  border: const OutlineInputBorder(),
-                ),
-                onSubmitted: (value) {
-                  setState(() {
-                    _currentTicker = value.trim();
-                  });
-                  _fetchStockData();
-                },
-              ),
-            ),
-            const SizedBox(height: 16), // Spacing after search bar
-            Text('종목명: ${_stockDetail!['name'] ?? 'N/A'}', style: Theme.of(context).textTheme.titleLarge),
-            const SizedBox(height: 10),
-            Text('현재가: ${formatPrice(_stockDetail!['price'])} ', style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 5),
             
-            Text('등락률: ${formatPrice(_stockDetail!['rate'])}%', style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 5),
-            Text('거래량: ${_stockDetail!['volume'] ?? 'N/A'}', style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 20),
-            // Chart Title
-            Text(
-              '${_stockDetail!['name'] ?? 'N/A'} (${_stockDetail!['ticker'] ?? 'N/A'}) 차트',
-              style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 10),
-            // Timeframe ToggleButtons
-            if (_currentTicker.isNotEmpty) // Use _currentTicker instead of widget.ticker
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8.0),
-                child: ToggleButtons(
-                  isSelected: _isSelected,
-                  onPressed: (int index) {
-                    setState(() {
-                      for (int i = 0; i < _isSelected.length; i++) {
-                        _isSelected[i] = i == index;
-                      }
-                      _selectedTimeframe = ['M', 'H', 'D'][index];
-                      _fetchStockData(); // Re-fetch data with new timeframe
-                    });
-                  },
-                  color: theme.colorScheme.onSurface.withOpacity(0.7), // Unselected text color
-                  selectedColor: theme.colorScheme.onPrimary, // Selected text color
-                  fillColor: theme.colorScheme.primary, // Selected background color
-                  borderColor: theme.colorScheme.outline, // Border color
-                  selectedBorderColor: theme.colorScheme.primary, // Selected border color
-                  splashColor: theme.colorScheme.primary.withOpacity(0.2), // Splash color
-                  highlightColor: theme.colorScheme.primary.withOpacity(0.1), // Highlight color
-                  constraints: const BoxConstraints(minHeight: 36.0),
-                  children: <Widget>[
-                    Padding(padding: const EdgeInsets.symmetric(horizontal: 16.0), child: Text('1분', style: TextStyle(fontSize: getResponsiveFontSize(context, 14)))),
-                    Padding(padding: const EdgeInsets.symmetric(horizontal: 16.0), child: Text('1시간', style: TextStyle(fontSize: getResponsiveFontSize(context, 14)))),
-                    Padding(padding: const EdgeInsets.symmetric(horizontal: 16.0), child: Text('1일', style: TextStyle(fontSize: getResponsiveFontSize(context, 14)))),
-                  ],
-                ),
-              ),
-            const SizedBox(height: 20),
-            // Candlestick Chart
-            SizedBox(
-              height: MediaQuery.of(context).size.height * 0.4, // Responsive height
-              child: _chartData.isEmpty
-                  ? Center(
-                      child: Text(
-                        _error != null ? _error! : '차트 데이터가 없습니다.',
-                        style: TextStyle(color: theme.colorScheme.onSurface.withOpacity(0.7)),
-                      ),
-                    )
-                  : SfCartesianChart(
-                      backgroundColor: Colors.transparent,
-                      plotAreaBackgroundColor: Colors.transparent,
-                      margin: EdgeInsets.zero,
-                      plotAreaBorderWidth: 0,
-                      trackballBehavior: TrackballBehavior(
-                        enable: true,
-                        activationMode: ActivationMode.singleTap,
-                        lineType: TrackballLineType.vertical,
-                        lineDashArray: const <double>[5, 5],
-                        tooltipSettings: InteractiveTooltip(
-                          enable: true,
-                          color: theme.colorScheme.surface, // Use theme surface color
-                          borderColor: theme.colorScheme.outline, // Use theme outline color
-                          borderWidth: 1,
-                          format: 'point.x\nOpen: point.open\nHigh: point.high\nLow: point.low\nClose: point.close\nVolume: point.volume', // Custom tooltip format
-                        ),
-                      ),
-                      primaryXAxis: DateTimeAxis(
-                        dateFormat: _getDateFormat(),
-                        majorGridLines: const MajorGridLines(width: 0),
-                        labelStyle: TextStyle(color: theme.colorScheme.onSurface, fontSize: 12), // Increased font size
-                        axisLine: AxisLine(width: 0, color: theme.colorScheme.outline), // Axis line color
-                      ),
-                      primaryYAxis: NumericAxis(
-                        opposedPosition: true,
-                        rangePadding: ChartRangePadding.round,
-                        axisLabelFormatter: (AxisLabelRenderDetails details) {
-                          final value = details.value;
-                          String formattedText;
-                          if (_market == 'KRX') {
-                            formattedText = '${NumberFormat.compact().format(value / 10000)} 만원';
-                          } else {
-                            formattedText = NumberFormat.compactSimpleCurrency(locale: 'en_US').format(value);
-                          }
-                          return ChartAxisLabel(formattedText, TextStyle(color: theme.colorScheme.onSurface, fontSize: 12)); // Increased font size
-                        },
-                        axisLine: AxisLine(width: 0, color: theme.colorScheme.outline), // Axis line color
-                        majorGridLines: MajorGridLines(width: 0.5, color: theme.colorScheme.outline.withOpacity(0.3), dashArray: const <double>[2, 2]), // More subtle gridlines
-                      ),
-                      series: <CandleSeries<_ChartData, DateTime>>[
-                        CandleSeries<_ChartData, DateTime>(
-                          dataSource: _chartData,
-                          xValueMapper: (_ChartData data, _) => data.x,
-                          lowValueMapper: (_ChartData data, _) => data.low,
-                          highValueMapper: (_ChartData data, _) => data.high,
-                          openValueMapper: (_ChartData data, _) => data.open,
-                          closeValueMapper: (_ChartData data, _) => data.close,
-                          enableSolidCandles: true,
-                          bullColor: Colors.green.shade700, // Darker green for bullish
-                          bearColor: Colors.red.shade700, // Darker red for bearish
-                        )
-                      ],
-                    ),
-            ),
+            StockTradingScreen(ticker: _currentTicker),
           ],
         ),
       ),
     );
   }
 }
-

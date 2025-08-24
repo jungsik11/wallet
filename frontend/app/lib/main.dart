@@ -157,7 +157,7 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
           // 수익 현황 탭
           _buildProfitTab(),
           // 현재가 탭
-          const StockChartAndDetailsView(ticker: 'PLTR'),
+          const StockChartAndDetailsView(ticker: 'AAPL'),
           // New dummy tabs
           Center(child: Text('Dummy Tab 1')),
           Center(child: Text('Dummy Tab 2')),
@@ -252,6 +252,3 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
     );
   }
 }
-
-
-

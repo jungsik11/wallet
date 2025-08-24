@@ -1,9 +1,7 @@
-feat: Implement stock item screen and refactor tab structure
+feat: Implement stock search, improve chart aesthetics, and adjust UI spacing
 
-- Implement new Stock tab with sub-tabs for Chart and Rising Stocks.
-- Integrate stock detail and candlestick chart functionality into a single view (StockChartAndDetailsView).
-- Move existing ranking screen to Rising Stocks sub-tab.
-- Remove unnecessary search bar from stock detail view.
-- Adjust column widths in ranking screen for Rank and Current Price.
-- Fix trailing zero formatting for prices in ranking screen.
-- Clean up unused files and imports.
+- Added stock search bar to the current price screen.
+- Enhanced candlestick chart aesthetics and layout (dynamic title, responsive height, improved axis labels, custom tooltip, subtle gridlines, themed colors).
+- Adjusted UI spacing across various screens to account for the removed AppBar.
+- Reverted previous attempts to integrate TradingView and fixed related backend issues.
+- Removed 'diff' field from stock details in backend and frontend.

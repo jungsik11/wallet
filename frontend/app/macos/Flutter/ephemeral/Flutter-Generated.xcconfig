@@ -1,6 +1,6 @@
 // This is a generated file; do not edit or check into version control.
-FLUTTER_ROOT=/Users/irf/development/flutter
-FLUTTER_APPLICATION_PATH=/Users/irf/Desktop/SynologyDrive/git/wallet/frontend/app
+FLUTTER_ROOT=C:\flutter
+FLUTTER_APPLICATION_PATH=C:\Users\Administrator\Desktop\git\wallet\frontend\app
 COCOAPODS_PARALLEL_CODE_SIGN=true
 FLUTTER_BUILD_DIR=build
 FLUTTER_BUILD_NAME=1.0.0
