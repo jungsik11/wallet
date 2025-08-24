@@ -9,6 +9,7 @@ class HomeScreen extends StatefulWidget {
   final List<dynamic> krBalanceData;
   final Map<String, dynamic> pensionBalanceData;
   final double? usExchangeRate;
+  final Future<void> Function() onRefresh;
 
   const HomeScreen({
     Key? key,
@@ -18,6 +19,7 @@ class HomeScreen extends StatefulWidget {
     required this.krBalanceData,
     required this.pensionBalanceData,
     this.usExchangeRate,
+    required this.onRefresh,
   }) : super(key: key);
 
   @override
@@ -109,11 +111,13 @@ class _HomeScreenState extends State<HomeScreen> {
     final theme = Theme.of(context);
 
     return Scaffold(
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
+      body: RefreshIndicator(
+        onRefresh: widget.onRefresh,
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const SizedBox(height: kToolbarHeight),
             // Total Realized Profit/Loss Section
             Card(
               elevation: 4,
@@ -266,6 +270,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ],
         ),
       ),
+    )
     );
   }
 

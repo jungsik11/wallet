@@ -84,4 +84,22 @@ class WalletApiService {
       throw Exception('Failed to load ranking data: ${response.statusCode}');
     }
   }
+
+  Future<Map<String, dynamic>> fetchStockDetail(String ticker) async {
+    final response = await http.get(Uri.parse('${ApiConstants.baseUrl}/stock/detail?ticker=$ticker'));
+    if (response.statusCode == 200) {
+      return jsonDecode(utf8.decode(response.bodyBytes));
+    } else {
+      throw Exception('Failed to load stock detail for $ticker: ${response.statusCode}');
+    }
+  }
+
+  Future<Map<String, dynamic>> fetchOrderbook(String ticker) async {
+    final response = await http.get(Uri.parse('${ApiConstants.baseUrl}/orderbook/$ticker'));
+    if (response.statusCode == 200) {
+      return jsonDecode(utf8.decode(response.bodyBytes));
+    } else {
+      throw Exception('Failed to load order book for $ticker: ${response.statusCode}');
+    }
+  }
 }

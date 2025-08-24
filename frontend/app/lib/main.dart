@@ -5,19 +5,20 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:intl/intl.dart';
 import 'package:app/asset_status_screen.dart';
-import 'package:app/candlestick_chart_screen.dart';
 import 'package:app/profit_screen.dart';
 import 'package:app/pension_screen.dart';
 import 'package:app/presentation/app_theme.dart';
 import 'package:app/constants/api_constants.dart';
 import 'package:app/services/wallet_api_service.dart';
 import 'package:app/chatbot_screen.dart'; // Add this line
-import 'package:app/responsive_text.dart'; // Add this line
 import 'package:app/home_screen.dart';
 import 'package:app/ranking_screen.dart';
+import 'package:app/stock_tab_content.dart'; // Add this line
+import 'package:app/stock_chart_and_details_view.dart';
 
 
 void main() {
+  print('App starting...'); // Add this line
   runApp(const MyApp());
 }
 
@@ -43,6 +44,7 @@ class MyHomePage extends StatefulWidget {
 
 class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateMixin {
   late TabController _tabController;
+  int _selectedIndex = 0; // Add this line
   Map<String, dynamic>? _usProfitData;
   List<dynamic>? _usBalanceData;
   double? _usExchangeRate;
@@ -58,7 +60,12 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 5, vsync: this);
+    _tabController = TabController(length: 8, vsync: this);
+    _tabController.addListener(() {
+      setState(() {
+        _selectedIndex = _tabController.index;
+      });
+    });
     _fetchData();
   }
 
@@ -104,25 +111,42 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        toolbarHeight: 0,
-        bottom: TabBar(
-          controller: _tabController,
-          tabs: const [
-            Tab(icon: Icon(Icons.home), text: '홈'),
-            Tab(icon: Icon(Icons.trending_up), text: '시세'),
-            Tab(icon: Icon(Icons.account_balance_wallet), text: '자산'), // 새로운 자산 탭
-            Tab(icon: Icon(Icons.show_chart), text: '수익 현황'),
-            Tab(icon: Icon(Icons.candlestick_chart), text: '현재가'),
-          ],
-        ),
+      
+      bottomNavigationBar: Builder( // Use Builder to get a new context for MediaQuery
+        builder: (BuildContext innerContext) {
+          final double screenWidth = MediaQuery.of(innerContext).size.width;
+          final double tabWidth = screenWidth / 10; // Adjust to show more tabs
+
+          return Material(
+            color: Theme.of(innerContext).colorScheme.surface,
+            elevation: 8.0,
+            child: TabBar(
+              controller: _tabController,
+              isScrollable: true,
+              labelColor: Theme.of(innerContext).colorScheme.primary,
+              unselectedLabelColor: Theme.of(innerContext).colorScheme.onSurface.withOpacity(0.6),
+              indicatorColor: Theme.of(innerContext).colorScheme.primary,
+              tabs: [
+                SizedBox(width: tabWidth, child: const Tab(icon: Icon(Icons.home), text: '홈')),
+                SizedBox(width: tabWidth, child: const Tab(icon: Icon(Icons.bar_chart), text: '주식 상세')),
+                SizedBox(width: tabWidth, child: const Tab(icon: Icon(Icons.account_balance_wallet), text: '자산/연금')),
+                SizedBox(width: tabWidth, child: const Tab(icon: Icon(Icons.trending_up), text: '수익 현황')),
+                SizedBox(width: tabWidth, child: const Tab(icon: Icon(Icons.attach_money), text: '현재가')),
+                SizedBox(width: tabWidth, child: const Tab(icon: Icon(Icons.more_horiz), text: '더미 1')),
+                SizedBox(width: tabWidth, child: const Tab(icon: Icon(Icons.more_horiz), text: '더미 2')),
+                SizedBox(width: tabWidth, child: const Tab(icon: Icon(Icons.more_horiz), text: '더미 3')),
+              ],
+            ),
+          );
+        },
       ),
       body: TabBarView(
         controller: _tabController,
+        physics: const AlwaysScrollableScrollPhysics(), // Added this line
         children: [
           _buildHomeTab(),
-          // 시세 탭 (빈 화면)
-          const RankingScreen(),
+          // New Stock Detail Screen (moved)
+          const StockTabContent(),
           // 자산 탭 (주식, 연금 슬라이드)
           PageView(
             children: [
@@ -133,7 +157,11 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
           // 수익 현황 탭
           _buildProfitTab(),
           // 현재가 탭
-          const CandlestickChartScreen(),
+          const StockChartAndDetailsView(ticker: 'AAPL'),
+          // New dummy tabs
+          Center(child: Text('Dummy Tab 1')),
+          Center(child: Text('Dummy Tab 2')),
+          Center(child: Text('Dummy Tab 3')),
         ],
       ),
       floatingActionButton: FloatingActionButton(
@@ -152,6 +180,8 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
         },
         child: const Icon(Icons.chat_bubble_outline),
       ),
+      
+      
     );
   }
 
@@ -169,7 +199,8 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
       krProfitData: _krProfitData!,
       krBalanceData: _krBalanceData!,
       pensionBalanceData: _pensionBalanceData!,
-      usExchangeRate: _usExchangeRate, // Add this line
+      usExchangeRate: _usExchangeRate,
+      onRefresh: _fetchData,
     );
   }
 
@@ -184,6 +215,7 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
     return AssetStatusScreen(
       usBalanceData: _usBalanceData!,
       krBalanceData: _krBalanceData!,
+      onRefresh: _fetchData,
     );
   }
 
@@ -197,6 +229,7 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
     // PensionScreen에 필요한 데이터 전달
     return PensionScreen(
       pensionBalanceData: _pensionBalanceData!,
+      onRefresh: _fetchData,
     );
   }
 

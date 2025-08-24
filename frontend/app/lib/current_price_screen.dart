@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'dart:convert';
 import 'package:syncfusion_flutter_charts/charts.dart';
 import 'package:app/services/wallet_api_service.dart';
+import 'package:intl/intl.dart';
 
 class ChartData {
   ChartData(this.x, this.open, this.high, this.low, this.close);
@@ -36,7 +37,27 @@ class _CurrentPriceScreenState extends State<CurrentPriceScreen> {
     _fetchRankingData();
   }
 
+  String formatPrice(dynamic price) {
+    print('formatPrice: Original price: $price (Type: ${price.runtimeType})');
+    if (price == null) {
+      print('formatPrice: Price is null, returning N/A');
+      return 'N/A';
+    }
+    // Convert to double to ensure numeric operations
+    double value = price.toDouble();
+    print('formatPrice: Converted to double: $value');
+
+    // Use NumberFormat to remove unnecessary trailing zeros
+    // The pattern '#.####' means show up to 4 decimal places, but remove trailing zeros.
+    // If you need more decimal places, adjust the number of #.
+    final formatter = NumberFormat('#.####');
+    String formatted = formatter.format(value);
+    print('formatPrice: Formatted string: $formatted');
+    return formatted;
+  }
+
   Future<void> _fetchRankingData() async {
+    print('_fetchRankingData: Starting data fetch...');
     setState(() {
       _isLoading = true;
       _error = null;
@@ -44,16 +65,19 @@ class _CurrentPriceScreenState extends State<CurrentPriceScreen> {
 
     try {
       final rankingData = await _apiService.fetchRankingData();
+      print('_fetchRankingData: Data fetched successfully. Count: ${rankingData.length}');
       setState(() {
         _rankingData = rankingData;
       });
     } catch (e) {
+      print('_fetchRankingData: Error fetching data: ${e.toString()}');
       setState(() {
         _error = '순위 데이터를 불러오는 데 실패했습니다: ${e.toString()}';
       });
     } finally {
       setState(() {
         _isLoading = false;
+        print('_fetchRankingData: Loading finished. _isLoading: $_isLoading');
       });
     }
   }
@@ -186,7 +210,7 @@ class _CurrentPriceScreenState extends State<CurrentPriceScreen> {
                                     cells: [
                                       DataCell(Text((index + 1).toString())),
                                       DataCell(Text(stock['name'] ?? 'N/A')),
-                                      DataCell(Text(stock['price']?.toString() ?? 'N/A')),
+                                      DataCell(Text(formatPrice(stock['price']) ?? 'N/A')),
                                       DataCell(Text('${stock['rate']?.toString() ?? 'N/A'}%')),
                                     ],
                                   );
