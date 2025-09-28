@@ -18,7 +18,7 @@ import 'package:app/stock_chart_and_details_view.dart';
 
 
 void main() {
-  print('App starting...'); // Add this line
+
   runApp(const MyApp());
 }
 
@@ -83,15 +83,29 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
     });
 
     try {
-      _usProfitData = await _apiService.fetchUsProfitData();
-      final usBalance = await _apiService.fetchUsBalanceData();
+      // Fetch all data in parallel
+      final results = await Future.wait([
+        _apiService.fetchUsProfitData(),
+        _apiService.fetchUsBalanceData(),
+        _apiService.fetchKrProfitData(),
+        _apiService.fetchKrBalanceData(),
+        _apiService.fetchPensionBalanceData(),
+      ]);
+
+      // Log received data
+      
+      // Process results
+      _usProfitData = results[0] as Map<String, dynamic>;
+      final usBalance = results[1] as Map<String, dynamic>;
       _usBalanceData = usBalance['stocks'] as List?;
-      _usExchangeRate = usBalance['exchange_rate'] as double?;
-      _krProfitData = await _apiService.fetchKrProfitData();
-      final krBalance = await _apiService.fetchKrBalanceData();
+      _usExchangeRate = (usBalance['exchange_rate'] as num?)?.toDouble();
+
+      _krProfitData = results[2] as Map<String, dynamic>;
+      final krBalance = results[3] as Map<String, dynamic>;
       _krBalanceData = krBalance['stocks'] as List?;
-      _krExchangeRate = krBalance['exchange_rate'] as double?;
-      _pensionBalanceData = await _apiService.fetchPensionBalanceData();
+      _krExchangeRate = (krBalance['exchange_rate'] as num?)?.toDouble();
+
+      _pensionBalanceData = results[4] as Map<String, dynamic>;
 
       if (mounted) {
         setState(() {
@@ -99,7 +113,7 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
         });
       }
     } catch (e) {
-      if (mounted) {
+            if (mounted) {
         setState(() {
           _errorMessage = e.toString();
           _isLoading = false;

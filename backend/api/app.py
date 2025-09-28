@@ -9,6 +9,7 @@ import time
 import traceback
 from datetime import datetime
 from json import loads
+from decimal import Decimal
 from typing import Any, Dict, List
 
 import pandas as pd
@@ -86,12 +87,10 @@ _current_price_cache = {}
 _current_price_cache_time = {}
 _ranking_charts_cache = {}
 _ranking_charts_cache_time = {}
+_stock_detail_cache = {}
+_stock_detail_cache_time = {}
 
-# Cache for orderbook
-_orderbook_cache = {}
-_orderbook_cache_time = {}
-
-CACHE_TTL = 60 * 5 # 5 minutes (adjust as needed)
+CACHE_TTL = 60 * 30 # 30 minutes (adjust as needed)
 
 # --- API Endpoints ---
 
@@ -192,13 +191,15 @@ async def calculate_profit(country: str = Query("US", description="Country code 
 
 
 @app.get("/account_balance")
-async def get_account_balance():
+async def get_account_balance(country: str = Query(None, description="Country code (US or KR)")):
     """
     Fetches and returns the current account balance for the main account, including cash and stocks.
+    Optionally filters stocks by country.
     Includes a retry mechanism to handle connection errors.
     """
     current_time = time.time()
-    cache_key = "main_account_balance"
+    # Adjust cache key based on whether a country is specified
+    cache_key = f"main_account_balance_{country}" if country else "main_account_balance_all"
 
     if cache_key in _account_balance_cache and current_time - _account_balance_cache_time.get(cache_key, 0) < CACHE_TTL:
         return _account_balance_cache[cache_key]
@@ -216,18 +217,24 @@ async def get_account_balance():
             # Process cash balances
             krw_deposit = balance.deposits.get('KRW')
             usd_deposit = balance.deposits.get('USD')
-            exchange_rate = usd_deposit.exchange_rate if usd_deposit and usd_deposit.exchange_rate else 1.0
+            exchange_rate = Decimal(str(usd_deposit.exchange_rate)) if usd_deposit and usd_deposit.exchange_rate else Decimal('1.0')
             
             cash_response = {
                 "krw": krw_deposit.amount if krw_deposit else 0,
                 "usd": usd_deposit.amount if usd_deposit else 0,
-                "usd_in_krw": round((usd_deposit.amount if usd_deposit else 0) * exchange_rate)
+                "usd_in_krw": round((usd_deposit.amount if usd_deposit else Decimal('0')) * exchange_rate)
             }
 
             # Process stock balances
             stocks_response = []
             if balance.stocks:
                 for stock in balance.stocks:
+                    # Filtering logic based on country
+                    if country == 'US' and stock.market not in ['NASDAQ', 'NYSE', 'AMS']:
+                        continue
+                    if country == 'KR' and stock.market != 'KRX':
+                        continue
+
                     stock_data = {
                         "name": stock.name,
                         "ticker": stock.symbol,
@@ -243,7 +250,7 @@ async def get_account_balance():
                             "profit_loss": stock.profit,
                             "currency": "KRW"
                         })
-                    else: # Overseas stocks
+                    else:  # Overseas stocks
                         valuation_usd = stock.amount
                         profit_loss_usd = stock.profit
                         stock_data.update({
@@ -298,12 +305,12 @@ async def get_account_balance_pension():
             # Process cash balances
             krw_deposit = balance.deposits.get('KRW')
             usd_deposit = balance.deposits.get('USD')
-            exchange_rate = usd_deposit.exchange_rate if usd_deposit and usd_deposit.exchange_rate else 1.0
+            exchange_rate = Decimal(str(usd_deposit.exchange_rate)) if usd_deposit and usd_deposit.exchange_rate else Decimal('1.0')
             
             cash_response = {
                 "krw": krw_deposit.amount if krw_deposit else 0,
                 "usd": usd_deposit.amount if usd_deposit else 0,
-                "usd_in_krw": round((usd_deposit.amount if usd_deposit else 0) * exchange_rate)
+                "usd_in_krw": round((usd_deposit.amount if usd_deposit else Decimal('0')) * exchange_rate)
             }
 
             # Process stock balances
@@ -363,12 +370,6 @@ async def get_ohlcv(ticker: str, timeframe: str = Query('D', description="Timefr
     """
     Fetches OHLCV (Open, High, Low, Close, Volume) data for a given ticker.
     """
-    current_time = time.time()
-    cache_key = f"ohlcv_{ticker}_{timeframe}"
-
-    if cache_key in _ohlcv_cache and current_time - _ohlcv_cache_time.get(cache_key, 0) < CACHE_TTL:
-        return _ohlcv_cache[cache_key]
-
     try:
         if not kis:
             raise HTTPException(status_code=500, detail="KIS client not initialized.")
@@ -376,115 +377,128 @@ async def get_ohlcv(ticker: str, timeframe: str = Query('D', description="Timefr
         stock = kis.stock(ticker)
         if not stock:
             raise HTTPException(status_code=404, detail=f"Ticker {ticker} not found")
-        
-        chart = None
+
+        # Determine chart parameters based on timeframe
         if timeframe == 'D':
             chart = stock.chart("1y")
-        elif timeframe == 'H':
-            chart = stock.chart("5d", period=60)
+        elif timeframe == 'W':
+            chart = stock.chart("5y")
         elif timeframe == 'M':
-            chart = stock.chart("1d", period=1)
+            chart = stock.chart("10y")
+        elif timeframe == 'H':
+            chart = stock.chart("1m") # Assuming "1m" for 1 month of hourly data
+        elif timeframe == 'Y':
+            chart = stock.chart("10y") # Assuming "10y" for 10 years of yearly data
         else:
-            raise HTTPException(status_code=400, detail=f"Invalid timeframe. Use 'D', 'H', or 'M'.")
+            raise HTTPException(status_code=400, detail="Invalid timeframe. Use 'D', 'W', 'M', 'H', or 'Y'.")
 
         if not chart or not chart.bars:
             return {"market": stock.market, "data": []}
 
-        ohlcv_data = [
-            {
-                "date": bar.time.isoformat(),
-                "open": bar.open,
-                "high": bar.high,
-                "low": bar.low,
-                "close": bar.close,
-                "volume": bar.volume
-            } for bar in chart.bars
-        ]
-        response_data = {"market": stock.market, "data": ohlcv_data}
-        _ohlcv_cache[cache_key] = response_data
-        _ohlcv_cache_time[cache_key] = current_time
-        return response_data
+        bars_data = []
+        for bar in chart.bars:
+            bars_data.append({
+                'time': bar.time,
+                'open': bar.open,
+                'high': bar.high,
+                'low': bar.low,
+                'close': bar.close,
+                'volume': bar.volume,
+            })
+        df = pd.DataFrame(bars_data)
+        df['time'] = pd.to_datetime(df['time'])
+        df.set_index('time', inplace=True)
+
+        if timeframe in ['W', 'M']:
+            resample_period = 'W-MON' if timeframe == 'W' else 'ME'
+            ohlc_dict = {'open': 'first', 'high': 'max', 'low': 'min', 'close': 'last', 'volume': 'sum'}
+            df = df.resample(resample_period, label='left').agg(ohlc_dict).dropna()
+        
+        df.reset_index(inplace=True)
+        df.rename(columns={'time': 'date'}, inplace=True)
+        df['date'] = pd.to_datetime(df['date']).dt.strftime('%Y-%m-%d')
+        
+        # Ensure correct data types for serialization
+        df[['open', 'high', 'low', 'close']] = df[['open', 'high', 'low', 'close']].astype(float)
+        df['volume'] = df['volume'].astype(int)
+
+        ohlcv_data = df[['date', 'open', 'high', 'low', 'close', 'volume']].to_dict(orient='records')
+
+        return {"market": stock.market, "data": ohlcv_data}
     except Exception as e:
-        print(f"Error getting ohlcv for {ticker}: {e}")
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/stock/detail")
-async def get_stock_detail(ticker: str = Query(..., description="Stock ticker")):
+@app.get("/current_price/{ticker}")
+async def get_current_price(ticker: str):
     """
-    Fetches detailed information for a given stock ticker.
+    Fetches the current price for a given stock ticker.
+    """
+    try:
+        if not kis:
+            raise HTTPException(status_code=500, detail="KIS client not initialized.")
+        price = kis.stock(ticker).quote().price
+        return {"current_price": price}
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Error fetching price for {ticker}: {e}")
+
+
+@app.get("/stock/{ticker}")
+async def get_stock_detail(ticker: str):
+    """
+    Fetches and returns details for a given stock ticker.
     """
     current_time = time.time()
     cache_key = f"stock_detail_{ticker}"
 
-    if cache_key in _current_price_cache and current_time - _current_price_cache_time.get(cache_key, 0) < CACHE_TTL:
-        return _current_price_cache[cache_key]
+    if cache_key in _stock_detail_cache and current_time - _stock_detail_cache_time.get(cache_key, 0) < CACHE_TTL:
+        return _stock_detail_cache[cache_key]
 
     try:
         if not kis:
             raise HTTPException(status_code=500, detail="KIS client not initialized.")
         
-        quote = kis.stock(ticker).quote()
-        
-        stock_data = {
-            "name": kis.stock(ticker).name,
-            "price": quote.price,
-            "rate": quote.rate,
-            "volume": quote.volume,
-        }
-        _current_price_cache[cache_key] = stock_data
-        _current_price_cache_time[cache_key] = current_time
-        return stock_data
+        try:
+            stock = kis.stock(ticker)
+        except Exception as e:
+            return {"error": f"Ticker {ticker} not found: {e}"}
 
-    except Exception as e:
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+        if not stock:
+            return {"error": f"Ticker {ticker} not found"}
 
+        quote = stock.quote()
 
-@app.get("/orderbook/{ticker}")
-async def get_orderbook(ticker: str):
-    """
-    Fetches the order book (asks and bids) for a given stock ticker.
-    Note: Order book data is only available for domestic (KRX) stocks.
-    """
-    current_time = time.time()
-    cache_key = f"orderbook_{ticker}"
-
-    if cache_key in _orderbook_cache and current_time - _orderbook_cache_time.get(cache_key, 0) < CACHE_TTL:
-        return _orderbook_cache[cache_key]
-
-    try:
-        if not kis:
-            raise HTTPException(status_code=500, detail="KIS client not initialized.")
-        
-        stock = kis.stock(ticker)
-        
-        if stock.market == 'KRX':
-            # Domestic stock
-            orderbook = stock.orderbook()
-            asks = [{"price": order.price, "size": order.volume} for order in orderbook.asks]
-            bids = [{"price": order.price, "size": order.volume} for order in orderbook.bids]
-            response_data = {
-                "asks": asks,
-                "bids": bids,
-            }
+        # Calculate diff and rate manually for both domestic and foreign stocks
+        chart = stock.chart("2d")
+        if len(chart.bars) < 2:
+            # Not enough data to calculate diff and rate
+            diff = 0
+            rate = 0
         else:
-            # Foreign stock - order book not available
-            response_data = {
-                "asks": [],
-                "bids": [],
-            }
+            prev_close = chart.bars[-2].close
+            diff = quote.price - prev_close
+            rate = (diff / prev_close) * 100 if prev_close != 0 else 0
 
-        _orderbook_cache[cache_key] = response_data
-        _orderbook_cache_time[cache_key] = current_time
+        response_data = {
+            "name": stock.name,
+            "price": quote.price,
+            "diff": diff,
+            "rate": rate,
+            "volume": quote.volume,
+            "open": quote.open,
+            "high": quote.high,
+            "low": quote.low,
+        }
+        
+        _stock_detail_cache[cache_key] = response_data
+        _stock_detail_cache_time[cache_key] = current_time
         return response_data
 
     except Exception as e:
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.get("/ranking/charts")
 async def get_ranking_charts(timeframe: str = Query('D', description="Timeframe: 'D' for daily, 'M' for 1-minute.")):
     """
     Fetches candlestick charts for the top 10 rising stocks.

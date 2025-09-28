@@ -48,23 +48,6 @@ class WalletApiService {
     }
   }
 
-  Future<Map<String, dynamic>> fetchAccountBalance() async {
-    final response = await http.get(Uri.parse(ApiConstants.accountBalanceUs)); // Assuming this is for US assets
-    if (response.statusCode == 200) {
-      return jsonDecode(utf8.decode(response.bodyBytes));
-    } else {
-      throw Exception('Failed to load account balance: ${response.statusCode}');
-    }
-  }
-
-  Future<Map<String, dynamic>> fetchAccountBalancePension() async {
-    final response = await http.get(Uri.parse(ApiConstants.accountBalancePension));
-    if (response.statusCode == 200) {
-      return jsonDecode(utf8.decode(response.bodyBytes));
-    } else {
-      throw Exception('Failed to load pension account balance: ${response.statusCode}');
-    }
-  }
 
   Future<Map<String, dynamic>> fetchOhlcvData(String ticker, String timeframe) async {
     await Future.delayed(const Duration(milliseconds: 200)); // Add delay
@@ -86,7 +69,7 @@ class WalletApiService {
   }
 
   Future<Map<String, dynamic>> fetchStockDetail(String ticker) async {
-    final response = await http.get(Uri.parse('${ApiConstants.baseUrl}/stock/detail?ticker=$ticker'));
+    final response = await http.get(Uri.parse('${ApiConstants.baseUrl}/stock/$ticker'));
     if (response.statusCode == 200) {
       return jsonDecode(utf8.decode(response.bodyBytes));
     } else {
