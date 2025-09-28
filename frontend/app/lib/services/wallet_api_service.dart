@@ -85,4 +85,13 @@ class WalletApiService {
       throw Exception('Failed to load order book for $ticker: ${response.statusCode}');
     }
   }
+
+  Future<List<dynamic>> fetchUsLongTermScreenedStocks() async {
+    final response = await http.get(Uri.parse('${ApiConstants.baseUrl}/screener/us-long-term'));
+    if (response.statusCode == 200) {
+      return jsonDecode(utf8.decode(response.bodyBytes));
+    } else {
+      throw Exception('Failed to load US long-term screened stocks: ${response.statusCode}');
+    }
+  }
 }
