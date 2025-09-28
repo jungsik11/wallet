@@ -9,6 +9,7 @@ import time
 import traceback
 from datetime import datetime
 from json import loads
+from decimal import Decimal
 from typing import Any, Dict, List
 
 import pandas as pd
@@ -192,13 +193,15 @@ async def calculate_profit(country: str = Query("US", description="Country code 
 
 
 @app.get("/account_balance")
-async def get_account_balance():
+async def get_account_balance(country: str = Query(None, description="Country code (US or KR)")):
     """
     Fetches and returns the current account balance for the main account, including cash and stocks.
+    Optionally filters stocks by country.
     Includes a retry mechanism to handle connection errors.
     """
     current_time = time.time()
-    cache_key = "main_account_balance"
+    # Adjust cache key based on whether a country is specified
+    cache_key = f"main_account_balance_{country}" if country else "main_account_balance_all"
 
     if cache_key in _account_balance_cache and current_time - _account_balance_cache_time.get(cache_key, 0) < CACHE_TTL:
         return _account_balance_cache[cache_key]
@@ -216,18 +219,24 @@ async def get_account_balance():
             # Process cash balances
             krw_deposit = balance.deposits.get('KRW')
             usd_deposit = balance.deposits.get('USD')
-            exchange_rate = usd_deposit.exchange_rate if usd_deposit and usd_deposit.exchange_rate else 1.0
+            exchange_rate = Decimal(str(usd_deposit.exchange_rate)) if usd_deposit and usd_deposit.exchange_rate else Decimal('1.0')
             
             cash_response = {
                 "krw": krw_deposit.amount if krw_deposit else 0,
                 "usd": usd_deposit.amount if usd_deposit else 0,
-                "usd_in_krw": round((usd_deposit.amount if usd_deposit else 0) * exchange_rate)
+                "usd_in_krw": round((usd_deposit.amount if usd_deposit else Decimal('0')) * exchange_rate)
             }
 
             # Process stock balances
             stocks_response = []
             if balance.stocks:
                 for stock in balance.stocks:
+                    # Filtering logic based on country
+                    if country == 'US' and stock.market not in ['NASDAQ', 'NYSE', 'AMS']:
+                        continue
+                    if country == 'KR' and stock.market != 'KRX':
+                        continue
+
                     stock_data = {
                         "name": stock.name,
                         "ticker": stock.symbol,
@@ -243,7 +252,7 @@ async def get_account_balance():
                             "profit_loss": stock.profit,
                             "currency": "KRW"
                         })
-                    else: # Overseas stocks
+                    else:  # Overseas stocks
                         valuation_usd = stock.amount
                         profit_loss_usd = stock.profit
                         stock_data.update({
@@ -298,12 +307,12 @@ async def get_account_balance_pension():
             # Process cash balances
             krw_deposit = balance.deposits.get('KRW')
             usd_deposit = balance.deposits.get('USD')
-            exchange_rate = usd_deposit.exchange_rate if usd_deposit and usd_deposit.exchange_rate else 1.0
+            exchange_rate = Decimal(str(usd_deposit.exchange_rate)) if usd_deposit and usd_deposit.exchange_rate else Decimal('1.0')
             
             cash_response = {
                 "krw": krw_deposit.amount if krw_deposit else 0,
                 "usd": usd_deposit.amount if usd_deposit else 0,
-                "usd_in_krw": round((usd_deposit.amount if usd_deposit else 0) * exchange_rate)
+                "usd_in_krw": round((usd_deposit.amount if usd_deposit else Decimal('0')) * exchange_rate)
             }
 
             # Process stock balances
