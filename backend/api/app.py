@@ -499,6 +499,7 @@ async def get_stock_detail(ticker: str):
     except Exception as e:
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
+@app.get("/ranking/charts")
 async def get_ranking_charts(timeframe: str = Query('D', description="Timeframe: 'D' for daily, 'M' for 1-minute.")):
     """
     Fetches candlestick charts for the top 10 rising stocks.

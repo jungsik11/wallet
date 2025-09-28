@@ -229,30 +229,33 @@ class _StockChartAndDetailsViewState extends State<StockChartAndDetailsView> {
                     ],
                   ),
                 ),
-                SizedBox(
-                  width: 150, // Adjust width as needed
-                  child: TextField(
-                    controller: _searchController,
-                    decoration: InputDecoration(
-                      hintText: '티커 입력',
-                      suffixIcon: IconButton(
-                        icon: const Icon(Icons.search),
-                        onPressed: () {
-                          setState(() {
-                            _currentDisplayTicker = _searchController.text.toUpperCase();
-                          });
-                          _fetchStockData();
-                        },
+                Padding( // Added Padding
+                  padding: const EdgeInsets.only(right: 16.0), // Added right padding
+                  child: SizedBox(
+                    width: 150, // Adjust width as needed
+                    child: TextField(
+                      controller: _searchController,
+                      decoration: InputDecoration(
+                        hintText: '티커 입력',
+                        suffixIcon: IconButton(
+                          icon: const Icon(Icons.search),
+                          onPressed: () {
+                            setState(() {
+                              _currentDisplayTicker = _searchController.text.toUpperCase();
+                            });
+                            _fetchStockData();
+                          },
+                        ),
+                        border: const OutlineInputBorder(),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
                       ),
-                      border: const OutlineInputBorder(),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
+                      onSubmitted: (value) {
+                        setState(() {
+                          _currentDisplayTicker = value.toUpperCase();
+                        });
+                        _fetchStockData();
+                      },
                     ),
-                    onSubmitted: (value) {
-                      setState(() {
-                        _currentDisplayTicker = value.toUpperCase();
-                      });
-                      _fetchStockData();
-                    },
                   ),
                 ),
               ],
@@ -300,27 +303,30 @@ class _StockChartAndDetailsViewState extends State<StockChartAndDetailsView> {
                 ),
 
                 // Right Section: Open, High, Low, Volume Info
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start, // Changed from CrossAxisAlignment.end to CrossAxisAlignment.start
-                  children: [
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        _buildDetailItem('시가', isKrw ? NumberFormat('#,###').format(open) : formatPrice(open)),
-                        const SizedBox(width: 16),
-                        _buildDetailItem('고가', isKrw ? NumberFormat('#,###').format(high) : formatPrice(high)),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        _buildDetailItem('저가', isKrw ? NumberFormat('#,###').format(low) : formatPrice(low)),
-                        const SizedBox(width: 16),
-                        _buildDetailItem('거래량', NumberFormat.compact().format(volume)),
-                      ],
-                    ),
-                  ],
+                Padding( // Added Padding
+                  padding: const EdgeInsets.only(right: 16.0), // Added right padding
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start, // Changed from CrossAxisAlignment.end to CrossAxisAlignment.start
+                    children: [
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          _buildDetailItem('시가', isKrw ? NumberFormat('#,###').format(open) : formatPrice(open)),
+                          const SizedBox(width: 16),
+                          _buildDetailItem('고가', isKrw ? NumberFormat('#,###').format(high) : formatPrice(high)),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          _buildDetailItem('저가', isKrw ? NumberFormat('#,###').format(low) : formatPrice(low)),
+                          const SizedBox(width: 16),
+                          _buildDetailItem('거래량', NumberFormat.compact().format(volume)),
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),
