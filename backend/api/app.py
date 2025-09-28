@@ -19,7 +19,7 @@ from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel
 from pykis import KisChart, KisDailyOrders, PyKis
 from ranking_chart_service import get_charts_for_ranked_stocks
-
+from us_long_term_screener import get_us_long_term_stocks
 # --- FastAPI and KIS Initialization ---
 
 # Load environment variables from .env file
@@ -499,6 +499,7 @@ async def get_stock_detail(ticker: str):
     except Exception as e:
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/ranking/charts")
 async def get_ranking_charts(timeframe: str = Query('D', description="Timeframe: 'D' for daily, 'M' for 1-minute.")):
     """
@@ -509,6 +510,25 @@ async def get_ranking_charts(timeframe: str = Query('D', description="Timeframe:
             raise HTTPException(status_code=500, detail="KIS client not initialized.")
         
         chart_data = get_charts_for_ranked_stocks(kis, timeframe=timeframe)
+        
+        if not chart_data:
+            return {"message": "No ranking data found or an error occurred."}
+            
+        return chart_data
+        
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/screener/us-market-cap-ranking")
+async def get_us_market_cap_ranking():
+
+    try:
+        if not kis:
+            raise HTTPException(status_code=500, detail="KIS client not initialized.")
+        
+        chart_data = get_us_long_term_stocks(kis)
         
         if not chart_data:
             return {"message": "No ranking data found or an error occurred."}

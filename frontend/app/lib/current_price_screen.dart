@@ -41,7 +41,7 @@ class _CurrentPriceScreenState extends State<CurrentPriceScreen> {
     });
 
     try {
-      final screenedData = await _apiService.fetchUsLongTermScreenedStocks();
+      final screenedData = await _apiService.fetchUsMarketCapRanking();
       setState(() {
         _usScreenedStocks = screenedData;
       });
@@ -95,6 +95,9 @@ class _CurrentPriceScreenState extends State<CurrentPriceScreen> {
                                 ],
                                 rows: _usScreenedStocks.asMap().entries.map<DataRow>((entry) {
                                   var stock = entry.value;
+                                  print('[CurrentPriceScreen] Processing stock: $stock'); // Debug print
+                                  print('[CurrentPriceScreen] current_price: ${stock['current_price']} (Type: ${stock['current_price'].runtimeType})'); // Debug print
+                                  print('[CurrentPriceScreen] market_cap: ${stock['market_cap']} (Type: ${stock['market_cap'].runtimeType})'); // Debug print
                                   final ticker = stock['ticker'];
                                   return DataRow(
                                     cells: [
@@ -114,9 +117,9 @@ class _CurrentPriceScreenState extends State<CurrentPriceScreen> {
                                         ),
                                       ),
                                       DataCell(Text(stock['name'] ?? 'N/A')),
-                                      DataCell(Text(formatPrice(stock['current_price']))),
+                                      DataCell(Text(formatPrice(stock['price']))),
                                       DataCell(Text('${stock['rate']?.toString() ?? 'N/A'}%')),
-                                      DataCell(Text(stock['market_cap'] != null ? NumberFormat.compact().format(stock['market_cap']) : 'N/A')),
+                                      DataCell(Text(stock['mcap'] != null ? NumberFormat.compact().format(stock['mcap']) : 'N/A')),
                                     ],
                                   );
                                 }).toList(),

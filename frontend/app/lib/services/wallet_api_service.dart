@@ -94,4 +94,13 @@ class WalletApiService {
       throw Exception('Failed to load US long-term screened stocks: ${response.statusCode}');
     }
   }
+
+  Future<List<dynamic>> fetchUsMarketCapRanking() async {
+    final response = await http.get(Uri.parse('${ApiConstants.baseUrl}/screener/us-market-cap-ranking'));
+    if (response.statusCode == 200) {
+      return jsonDecode(utf8.decode(response.bodyBytes));
+    } else {
+      throw Exception('Failed to load US market cap ranking: ${response.statusCode}');
+    }
+  }
 }
