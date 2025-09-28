@@ -15,6 +15,7 @@ import 'package:app/home_screen.dart';
 import 'package:app/ranking_screen.dart';
 import 'package:app/stock_tab_content.dart'; // Add this line
 import 'package:app/stock_chart_and_details_view.dart';
+import 'package:app/current_price_screen.dart';
 
 
 void main() {
@@ -171,7 +172,7 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
           // 수익 현황 탭
           _buildProfitTab(),
           // 현재가 탭
-          const StockChartAndDetailsView(ticker: 'AAPL'),
+          const CurrentPriceScreen(),
           // New dummy tabs
           Center(child: Text('Dummy Tab 1')),
           Center(child: Text('Dummy Tab 2')),
