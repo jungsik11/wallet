@@ -437,12 +437,7 @@ class _StockChartAndDetailsViewState extends State<StockChartAndDetailsView> {
       );
     }
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(_stockDetail?['name'] ?? _lastSuccessfulTicker),
-      ),
-      body: body,
-    );
+    return body;
   }
 
   Widget _buildDetailItem(String title, String value) {

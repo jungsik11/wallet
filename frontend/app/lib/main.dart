@@ -61,7 +61,7 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 8, vsync: this);
+    _tabController = TabController(length: 7, vsync: this);
     _tabController.addListener(() {
       setState(() {
         _selectedIndex = _tabController.index;
@@ -146,7 +146,6 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
                 SizedBox(width: tabWidth, child: const Tab(icon: Icon(Icons.bar_chart), text: '주식 상세')),
                 SizedBox(width: tabWidth, child: const Tab(icon: Icon(Icons.account_balance_wallet), text: '자산/연금')),
                 SizedBox(width: tabWidth, child: const Tab(icon: Icon(Icons.trending_up), text: '수익 현황')),
-                SizedBox(width: tabWidth, child: const Tab(icon: Icon(Icons.attach_money), text: '현재가')),
                 SizedBox(width: tabWidth, child: const Tab(icon: Icon(Icons.more_horiz), text: '더미 1')),
                 SizedBox(width: tabWidth, child: const Tab(icon: Icon(Icons.more_horiz), text: '더미 2')),
                 SizedBox(width: tabWidth, child: const Tab(icon: Icon(Icons.more_horiz), text: '더미 3')),
@@ -171,8 +170,6 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
           ),
           // 수익 현황 탭
           _buildProfitTab(),
-          // 현재가 탭
-          const CurrentPriceScreen(),
           // New dummy tabs
           Center(child: Text('Dummy Tab 1')),
           Center(child: Text('Dummy Tab 2')),

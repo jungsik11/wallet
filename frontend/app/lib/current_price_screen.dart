@@ -5,7 +5,9 @@ import 'package:intl/intl.dart';
 import 'package:app/stock_chart_and_details_view.dart';
 
 class CurrentPriceScreen extends StatefulWidget {
-  const CurrentPriceScreen({Key? key}) : super(key: key);
+  final Function(String) onTickerSelected;
+
+  const CurrentPriceScreen({Key? key, required this.onTickerSelected}) : super(key: key);
 
   @override
   _CurrentPriceScreenState createState() => _CurrentPriceScreenState();
@@ -95,9 +97,6 @@ class _CurrentPriceScreenState extends State<CurrentPriceScreen> {
                                 ],
                                 rows: _usScreenedStocks.asMap().entries.map<DataRow>((entry) {
                                   var stock = entry.value;
-                                  print('[CurrentPriceScreen] Processing stock: $stock'); // Debug print
-                                  print('[CurrentPriceScreen] current_price: ${stock['current_price']} (Type: ${stock['current_price'].runtimeType})'); // Debug print
-                                  print('[CurrentPriceScreen] market_cap: ${stock['market_cap']} (Type: ${stock['market_cap'].runtimeType})'); // Debug print
                                   final ticker = stock['ticker'];
                                   return DataRow(
                                     cells: [
@@ -105,12 +104,7 @@ class _CurrentPriceScreenState extends State<CurrentPriceScreen> {
                                         InkWell(
                                           onTap: () {
                                             if (ticker != null) {
-                                              Navigator.push(
-                                                context,
-                                                MaterialPageRoute(
-                                                  builder: (context) => StockChartAndDetailsView(ticker: ticker),
-                                                ),
-                                              );
+                                              widget.onTickerSelected(ticker);
                                             }
                                           },
                                           child: Text(stock['ticker'] ?? 'N/A'),

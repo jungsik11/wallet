@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:app/ranking_screen.dart'; // Import RankingScreen
 import 'package:app/stock_chart_and_details_view.dart'; // Import StockChartAndDetailsView
+import 'package:app/current_price_screen.dart'; // Import CurrentPriceScreen
 
 class StockTabContent extends StatefulWidget {
   const StockTabContent({Key? key}) : super(key: key);
@@ -13,18 +14,25 @@ class _StockTabContentState extends State<StockTabContent> with SingleTickerProv
   late TabController _subTabController;
 
   // For now, a fixed ticker for testing. This will eventually come from another screen.
-  final String _currentTicker = 'PLTR'; // Example ticker
+  String _currentTicker = 'PLTR'; // Example ticker
 
   @override
   void initState() {
     super.initState();
-    _subTabController = TabController(length: 2, vsync: this);
+    _subTabController = TabController(length: 3, vsync: this);
   }
 
   @override
   void dispose() {
     _subTabController.dispose();
     super.dispose();
+  }
+
+  void _onTickerSelected(String ticker) {
+    setState(() {
+      _currentTicker = ticker;
+    });
+    _subTabController.animateTo(0);
   }
 
   @override
@@ -46,8 +54,10 @@ class _StockTabContentState extends State<StockTabContent> with SingleTickerProv
           tabs: const [
             Tab(text: '차트'),
             Tab(text: '상승 종목'),
+            Tab(text: '현재가'),
           ],
         ),
+        const SizedBox(height: 16.0),
         Expanded(
           child: TabBarView(
             controller: _subTabController,
@@ -56,6 +66,8 @@ class _StockTabContentState extends State<StockTabContent> with SingleTickerProv
               StockChartAndDetailsView(ticker: _currentTicker), // Use StockChartAndDetailsView
               // Ranking Tab Content
               const RankingScreen(),
+              // Current Price Tab Content
+              CurrentPriceScreen(onTickerSelected: _onTickerSelected),
             ],
           ),
         ),
