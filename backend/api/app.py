@@ -18,7 +18,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel
 from pykis import KisChart, KisDailyOrders, PyKis
-from ranking_chart_service import get_charts_for_ranked_stocks
+from ranking_chart_service import get_ranked_stocks
 from us_long_term_screener import get_us_long_term_stocks
 # --- FastAPI and KIS Initialization ---
 
@@ -366,65 +366,86 @@ async def get_account_balance_pension():
 
 
 @app.get("/ohlcv")
-async def get_ohlcv(ticker: str, timeframe: str = Query('D', description="Timeframe: 'D' (daily), 'W' (weekly), 'M' (monthly)")):
-    """
-    Fetches OHLCV (Open, High, Low, Close, Volume) data for a given ticker.
-    """
+async def get_ohlcv(ticker: str, timeframe: str = Query('D', description="Timeframe: 'Y' (yearly), 'D' (daily), 'M' (minute)")):
     try:
         if not kis:
             raise HTTPException(status_code=500, detail="KIS client not initialized.")
-            
+
         stock = kis.stock(ticker)
         if not stock:
             raise HTTPException(status_code=404, detail=f"Ticker {ticker} not found")
 
-        # Determine chart parameters based on timeframe
-        if timeframe == 'D':
-            chart = stock.chart("1y")
-        elif timeframe == 'W':
-            chart = stock.chart("5y")
-        elif timeframe == 'M':
-            chart = stock.chart("10y")
-        elif timeframe == 'H':
-            chart = stock.chart("1m") # Assuming "1m" for 1 month of hourly data
-        elif timeframe == 'Y':
-            chart = stock.chart("10y") # Assuming "10y" for 10 years of yearly data
-        else:
-            raise HTTPException(status_code=400, detail="Invalid timeframe. Use 'D', 'W', 'M', 'H', or 'Y'.")
+        bars_data = []
+        df = pd.DataFrame()
 
-        if not chart or not chart.bars:
+        if timeframe == 'Y':
+            chart = stock.chart("10y", period='year')
+            if chart and chart.bars:
+                for bar in chart.bars:
+                    bars_data.append({
+                        'time': bar.time,
+                        'open': bar.open,
+                        'high': bar.high,
+                        'low': bar.low,
+                        'close': bar.close,
+                        'volume': bar.volume,
+                    })
+                df = pd.DataFrame(bars_data)
+                df['time'] = pd.to_datetime(df['time'])
+                df.set_index('time', inplace=True)
+                
+                # Resample to yearly data
+                ohlc_dict = {'open': 'first', 'high': 'max', 'low': 'min', 'close': 'last', 'volume': 'sum'}
+                df = df.resample('A').agg(ohlc_dict).dropna()
+                df.reset_index(inplace=True)
+                df.rename(columns={'time': 'date'}, inplace=True)
+                df['date'] = df['date'].dt.strftime('%Y-%m-%d')
+
+        elif timeframe == 'D':
+            chart = stock.chart("1y") # Fetch 1 year of data
+            if chart and chart.bars:
+                for bar in chart.bars:
+                    bars_data.append({
+                        'time': bar.time,
+                        'open': bar.open,
+                        'high': bar.high,
+                        'low': bar.low,
+                        'close': bar.close,
+                        'volume': bar.volume,
+                    })
+                df = pd.DataFrame(bars_data)
+                df = df.tail(180) # Get last 180 days
+                df.rename(columns={'time': 'date'}, inplace=True)
+                df['date'] = pd.to_datetime(df['date']).dt.strftime('%Y-%m-%d')
+
+        elif timeframe == 'M':
+            min_chart = stock.chart("1h", period=1)
+            if min_chart and min_chart.bars:
+                for bar in min_chart.bars: # Fetches the most recent 30 minutes
+                    bars_data.append({
+                        'date': bar.time.strftime('%Y-%m-%d %H:%M:%S'),
+                        'open': bar.open,
+                        'high': bar.high,
+                        'low': bar.low,
+                        'close': bar.close,
+                        'volume': bar.volume,
+                    })
+            df = pd.DataFrame(bars_data)
+
+        else:
+            raise HTTPException(status_code=400, detail="Invalid timeframe. Use 'Y', 'D', or 'M'.")
+
+        if df.empty:
             return {"market": stock.market, "data": []}
 
-        bars_data = []
-        for bar in chart.bars:
-            bars_data.append({
-                'time': bar.time,
-                'open': bar.open,
-                'high': bar.high,
-                'low': bar.low,
-                'close': bar.close,
-                'volume': bar.volume,
-            })
-        df = pd.DataFrame(bars_data)
-        df['time'] = pd.to_datetime(df['time'])
-        df.set_index('time', inplace=True)
-
-        if timeframe in ['W', 'M']:
-            resample_period = 'W-MON' if timeframe == 'W' else 'ME'
-            ohlc_dict = {'open': 'first', 'high': 'max', 'low': 'min', 'close': 'last', 'volume': 'sum'}
-            df = df.resample(resample_period, label='left').agg(ohlc_dict).dropna()
-        
-        df.reset_index(inplace=True)
-        df.rename(columns={'time': 'date'}, inplace=True)
-        df['date'] = pd.to_datetime(df['date']).dt.strftime('%Y-%m-%d')
-        
         # Ensure correct data types for serialization
-        df[['open', 'high', 'low', 'close']] = df[['open', 'high', 'low', 'close']].astype(float)
+        df[['open', 'high', 'low', 'close']] = df[['open', 'high' ,'low', 'close']].astype(float)
         df['volume'] = df['volume'].astype(int)
 
         ohlcv_data = df[['date', 'open', 'high', 'low', 'close', 'volume']].to_dict(orient='records')
 
         return {"market": stock.market, "data": ohlcv_data}
+
     except Exception as e:
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
@@ -501,15 +522,15 @@ async def get_stock_detail(ticker: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/ranking/charts")
-async def get_ranking_charts(timeframe: str = Query('D', description="Timeframe: 'D' for daily, 'M' for 1-minute.")):
+async def get_ranking_charts():
     """
-    Fetches candlestick charts for the top 10 rising stocks.
+    Fetches the top 10 rising stocks.
     """
     try:
         if not kis:
             raise HTTPException(status_code=500, detail="KIS client not initialized.")
         
-        chart_data = get_charts_for_ranked_stocks(kis, timeframe=timeframe)
+        chart_data = get_ranked_stocks(kis)
         
         if not chart_data:
             return {"message": "No ranking data found or an error occurred."}

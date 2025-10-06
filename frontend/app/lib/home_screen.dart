@@ -231,6 +231,25 @@ class _HomeScreenState extends State<HomeScreen> {
                         tooltipBehavior: TooltipBehavior(enable: true),
                       ),
                     ),
+                    const SizedBox(height: 16),
+                    Wrap(
+                      spacing: 16.0,
+                      runSpacing: 8.0,
+                      children: sortedTableData.map((data) {
+                        return Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              width: 12,
+                              height: 12,
+                              color: _getColorForStock(data.category),
+                            ),
+                            const SizedBox(width: 4),
+                            Text(data.category, style: theme.textTheme.bodySmall),
+                          ],
+                        );
+                      }).toList(),
+                    ),
                     // Nested ExpansionTile for the detailed table
                     ExpansionTile(
                       title: Text(

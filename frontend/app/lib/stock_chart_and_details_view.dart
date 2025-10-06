@@ -23,16 +23,7 @@ class _ChartData {
   final num volume;
   final double? sma5;
 
-  factory _ChartData.fromJson(Map<String, dynamic> json) {
-    return _ChartData(
-      DateTime.parse(json['date']),
-      json['open'],
-      json['high'],
-      json['low'],
-      json['close'],
-      json['volume'],
-    );
-  }
+
 }
 
 class _StockChartAndDetailsViewState extends State<StockChartAndDetailsView> {
@@ -42,7 +33,6 @@ class _StockChartAndDetailsViewState extends State<StockChartAndDetailsView> {
   bool _isLoading = false;
   String? _error;
   String _selectedTimeframe = 'D';
-  String _market = '';
   List<bool> _isSelected = [false, true, false]; // M, D, Y
   CrosshairBehavior? _crosshairBehavior;
   late TextEditingController _searchController;
@@ -111,19 +101,26 @@ class _StockChartAndDetailsViewState extends State<StockChartAndDetailsView> {
     });
 
     try {
-      final stockDetailData = await _apiService.fetchStockDetail(_currentDisplayTicker); // Use _currentDisplayTicker
+      final stockDetailData = await _apiService.fetchStockDetail(_currentDisplayTicker);
 
       if (stockDetailData.containsKey('error')) {
         _showErrorSnackbar(stockDetailData['error']);
-        _currentDisplayTicker = _lastSuccessfulTicker; // Revert on error
-        _searchController.text = _lastSuccessfulTicker; // Revert search bar text
-        return; // Stop further processing
+        _currentDisplayTicker = _lastSuccessfulTicker;
+        _searchController.text = _lastSuccessfulTicker;
+        return;
       }
 
-      final ohlcvData = await _apiService.fetchOhlcvData(_currentDisplayTicker, _selectedTimeframe); // Use _currentDisplayTicker
+      final ohlcvData = await _apiService.fetchOhlcvData(_currentDisplayTicker, _selectedTimeframe);
 
       final List<dynamic> chartRawData = ohlcvData['data'];
-      final chartData = chartRawData.map((item) => _ChartData.fromJson(item)).toList();
+      final chartData = chartRawData.map((item) => _ChartData(
+        DateTime.parse(item['date']),
+        item['open'],
+        item['high'],
+        item['low'],
+        item['close'],
+        item['volume'],
+      )).toList();
 
       // Calculate 5-period SMA
       List<_ChartData> smaData = [];
@@ -140,19 +137,18 @@ class _StockChartAndDetailsViewState extends State<StockChartAndDetailsView> {
 
       setState(() {
         _stockDetail = stockDetailData;
-        _market = ohlcvData['market'];
         _chartData = chartData;
         _smaData = smaData;
         if (_chartData.isEmpty) {
           _error = '해당 기간에 대한 차트 데이터가 없습니다.';
         }
-        _lastSuccessfulTicker = _currentDisplayTicker; // Update on success
+        _lastSuccessfulTicker = _currentDisplayTicker;
       });
     } catch (e) {
       setState(() {
         _showErrorSnackbar('데이터를 불러오는 데 실패했습니다: ${e.toString()}');
-        _currentDisplayTicker = _lastSuccessfulTicker; // Revert on error
-        _searchController.text = _lastSuccessfulTicker; // Revert search bar text
+        _currentDisplayTicker = _lastSuccessfulTicker;
+        _searchController.text = _lastSuccessfulTicker;
       });
     } finally {
       setState(() {
@@ -165,9 +161,10 @@ class _StockChartAndDetailsViewState extends State<StockChartAndDetailsView> {
     switch (_selectedTimeframe) {
       case 'M':
         return DateFormat('HH:mm');
-      case 'H':
-        return DateFormat('MM/dd HH:mm');
       case 'D':
+        return DateFormat('yy/MM/dd');
+      case 'Y':
+        return DateFormat('yyyy');
       default:
         return DateFormat('yy/MM/dd');
     }
@@ -199,7 +196,7 @@ class _StockChartAndDetailsViewState extends State<StockChartAndDetailsView> {
       final high = _stockDetail!['high'] ?? 0;
       final low = _stockDetail!['low'] ?? 0;
 
-      final isKrw = _market == 'KRX';
+      final isKrw = RegExp(r'^\d{6}$').hasMatch(_currentDisplayTicker);
       final priceColor = diff > 0 ? Colors.red : (diff < 0 ? Colors.blue : Colors.grey);
 
       body = SingleChildScrollView(

@@ -1,9 +1,12 @@
+import 'package:app/stock_chart_and_details_view.dart';
 import 'package:flutter/material.dart';
 import 'package:app/services/wallet_api_service.dart';
 import 'package:intl/intl.dart';
 
 class RankingScreen extends StatefulWidget {
-  const RankingScreen({Key? key}) : super(key: key);
+  final Function(String) onTickerSelected;
+
+  const RankingScreen({Key? key, required this.onTickerSelected}) : super(key: key);
 
   @override
   _RankingScreenState createState() => _RankingScreenState();
@@ -125,6 +128,7 @@ class _RankingScreenState extends State<RankingScreen> with AutomaticKeepAliveCl
           DataTable(
             columns: const [
               DataColumn(label: Text('순위'), columnWidth: FixedColumnWidth(50)),
+              DataColumn(label: Text('티커')),
               DataColumn(label: Text('종목명')),
               DataColumn(label: Text('현재가'), columnWidth: FixedColumnWidth(120)),
               DataColumn(label: Text('등락률')),
@@ -133,6 +137,7 @@ class _RankingScreenState extends State<RankingScreen> with AutomaticKeepAliveCl
             rows: _rankingData.asMap().entries.map((entry) {
               int index = entry.key;
               var stock = entry.value;
+              final ticker = stock['ticker'];
               
               // Safely parse values that might be String or num from the API
               final double diff = double.tryParse(stock['diff']?.toString() ?? '') ?? 0.0;
@@ -143,6 +148,16 @@ class _RankingScreenState extends State<RankingScreen> with AutomaticKeepAliveCl
               return DataRow(
                 cells: [
                   DataCell(Text((index + 1).toString())),
+                  DataCell(
+                    InkWell(
+                      onTap: () {
+                        if (ticker != null) {
+                          widget.onTickerSelected(ticker);
+                        }
+                      },
+                      child: Text(ticker ?? 'N/A'),
+                    ),
+                  ),
                   DataCell(
                     SizedBox(
                       width: 100, // Adjust this width as needed

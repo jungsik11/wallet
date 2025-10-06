@@ -72,7 +72,7 @@ def _get_top_ranked_stocks(kis: PyKis) -> List[Dict[str, Any]]:
         res = _fetch_kis_api(kis, api_url, tr_id, params)
 
         if res and res.get('output2'):
-            for item in res['output2'][:top_n]:
+            for item in res['output2']:
                 try:
                     rate_val = float(item.get('rate', 0.0))
                     all_stocks.append({
@@ -93,68 +93,18 @@ def _get_top_ranked_stocks(kis: PyKis) -> List[Dict[str, Any]]:
 
 # --- Public Service Function ---
 
-def get_charts_for_ranked_stocks(
-    kis: PyKis,
-    timeframe: str = 'D',
-    
-) -> List[Dict[str, Any]]:
+def get_ranked_stocks(kis: PyKis) -> List[Dict[str, Any]]:
     """
-    Fetches top N ranked stocks and their corresponding OHLCV chart data.
+    Fetches top N ranked stocks without their chart data for performance.
 
     Args:
         kis: An initialized PyKis client instance.
-        timeframe: The chart timeframe, 'D' for daily or 'M' for 1-minute bars.
-        top_n: The number of top stocks to fetch charts for.
 
     Returns:
-        A list of dictionaries, each containing stock info and its chart data.
+        A list of dictionaries, each containing stock info.
     """
     if not kis:
         raise ValueError("PyKis client is not initialized.")
 
     ranked_stocks = _get_top_ranked_stocks(kis)
-    if not ranked_stocks:
-        return []
-
-    results = []
-    for stock_info in ranked_stocks:
-        ticker = stock_info.get('ticker')
-        if not ticker:
-            continue
-
-        time.sleep(0.5) # Add a delay to avoid API rate limiting
-
-        try:
-            stock_obj = kis.stock(ticker) # Specify exchange
-
-            if timeframe == 'D':
-                chart = stock_obj.chart("1y")  # 1 year of daily data
-            elif timeframe == 'M':
-                chart = stock_obj.chart("1d", period=1)  # 1 day of 1-minute data
-            else:
-                print(f"Warning: Invalid timeframe '{timeframe}' for {ticker}. Skipping.")
-                continue
-
-            # Format chart data
-            ohlcv_data = []
-            if chart and chart.bars:
-                for bar in chart.bars:
-                    ohlcv_data.append({
-                        "date": bar.time.isoformat(),
-                        "open": bar.open,
-                        "high": bar.high,
-                        "low": bar.low,
-                        "close": bar.close,
-                        "volume": bar.volume,
-                    })
-            
-            stock_info['chart_data'] = ohlcv_data
-            results.append(stock_info)
-
-        except Exception as e:
-            print(f"Error fetching chart for {ticker}: {e}")
-            # Add stock with empty chart data to indicate failure
-            stock_info['chart_data'] = []
-            results.append(stock_info)
-
-    return results
+    return ranked_stocks

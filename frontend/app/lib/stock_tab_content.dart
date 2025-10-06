@@ -65,7 +65,7 @@ class _StockTabContentState extends State<StockTabContent> with SingleTickerProv
               // Chart Tab Content
               StockChartAndDetailsView(ticker: _currentTicker), // Use StockChartAndDetailsView
               // Ranking Tab Content
-              const RankingScreen(),
+              RankingScreen(onTickerSelected: _onTickerSelected),
               // Current Price Tab Content
               CurrentPriceScreen(onTickerSelected: _onTickerSelected),
             ],
