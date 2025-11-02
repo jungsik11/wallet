@@ -4,8 +4,8 @@ import 'package:syncfusion_flutter_charts/charts.dart';
 import 'responsive_text.dart';
 
 class AssetStatusScreen extends StatefulWidget {
-  final List<dynamic> usBalanceData;
-  final List<dynamic> krBalanceData;
+  final Map<String, dynamic> usBalanceData;
+  final Map<String, dynamic> krBalanceData;
   final Future<void> Function() onRefresh;
 
   const AssetStatusScreen({
@@ -46,23 +46,15 @@ class _AssetStatusScreenState extends State<AssetStatusScreen> {
   void _updateBalanceData() {
     if (_selectedCurrency == 'USD') {
       _balanceData = {
-        'stocks': widget.usBalanceData,
-        'cash': {
-          'usd': widget.usBalanceData.firstWhere((stock) => stock['ticker'] == 'USD', orElse: () => {'valuation_usd': 0.0})['valuation_usd'],
-          'krw': 0.0, // Not directly available in US balance data
-          'usd_in_krw': 0.0, // Not directly available in US balance data
-        },
-        'exchange_rate': widget.usBalanceData.firstWhere((stock) => stock['ticker'] == 'USD', orElse: () => {'exchange_rate': 0.0})['exchange_rate'],
+        'stocks': widget.usBalanceData['stocks'],
+        'cash': widget.usBalanceData['cash'],
+        'exchange_rate': widget.usBalanceData['exchange_rate'],
       };
     } else { // KRW
       _balanceData = {
-        'stocks': widget.krBalanceData,
-        'cash': {
-          'krw': widget.krBalanceData.firstWhere((stock) => stock['ticker'] == 'KRW', orElse: () => {'valuation': 0.0})['valuation'],
-          'usd': 0.0, // Not directly available in KR balance data
-          'usd_in_krw': widget.krBalanceData.firstWhere((stock) => stock['ticker'] == 'USD', orElse: () => {'valuation': 0.0})['valuation'],
-        },
-        'exchange_rate': widget.krBalanceData.firstWhere((stock) => stock['ticker'] == 'KRW', orElse: () => {'exchange_rate': 0.0})['exchange_rate'],
+        'stocks': widget.krBalanceData['stocks'],
+        'cash': widget.krBalanceData['cash'],
+        'exchange_rate': widget.krBalanceData['exchange_rate'],
       };
     }
     _exchangeRate = (_balanceData!['exchange_rate'] as num?)?.toDouble() ?? 0.0;

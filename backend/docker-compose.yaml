@@ -2,9 +2,7 @@
 
 services:
   api:
-    build:
-      context: ./docker
-      dockerfile: Dockerfile
+    image: backend-api:latest
     container_name: fast-api
     ports:
       - "8000:8000"
@@ -14,7 +12,15 @@ services:
       - ./api:/app
     restart: unless-stopped
     command: uvicorn app:app --host 0.0.0.0 --port 8000
-    
+
+  batch-app:
+    image: batch-app:latest
+    container_name: batch-app
+    env_file:
+      - ./.env
+    volumes:
+      - ./batch:/app
+
 
 networks:
   default:

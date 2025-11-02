@@ -32,6 +32,7 @@ class MyApp extends StatelessWidget {
       title: 'My Wallet',
       theme: appTheme,
       home: const MyHomePage(),
+      debugShowCheckedModeBanner: false,
     );
   }
 }
@@ -47,10 +48,10 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
   late TabController _tabController;
   int _selectedIndex = 0; // Add this line
   Map<String, dynamic>? _usProfitData;
-  List<dynamic>? _usBalanceData;
+  Map<String, dynamic>? _usBalanceData;
   double? _usExchangeRate;
   Map<String, dynamic>? _krProfitData;
-  List<dynamic>? _krBalanceData;
+  Map<String, dynamic>? _krBalanceData;
   double? _krExchangeRate;
   Map<String, dynamic>? _pensionBalanceData;
   bool _isLoading = true;
@@ -97,14 +98,12 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
       
       // Process results
       _usProfitData = results[0] as Map<String, dynamic>;
-      final usBalance = results[1] as Map<String, dynamic>;
-      _usBalanceData = usBalance['stocks'] as List?;
-      _usExchangeRate = (usBalance['exchange_rate'] as num?)?.toDouble();
+      _usBalanceData = results[1] as Map<String, dynamic>;
+      _usExchangeRate = (_usBalanceData?['exchange_rate'] as num?)?.toDouble();
 
       _krProfitData = results[2] as Map<String, dynamic>;
-      final krBalance = results[3] as Map<String, dynamic>;
-      _krBalanceData = krBalance['stocks'] as List?;
-      _krExchangeRate = (krBalance['exchange_rate'] as num?)?.toDouble();
+      _krBalanceData = results[3] as Map<String, dynamic>;
+      _krExchangeRate = (_krBalanceData?['exchange_rate'] as num?)?.toDouble();
 
       _pensionBalanceData = results[4] as Map<String, dynamic>;
 
@@ -207,9 +206,9 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
     // HomeScreen에 필요한 데이터 전달
     return HomeScreen(
       usProfitData: _usProfitData!,
-      usBalanceData: _usBalanceData!,
+      usBalanceData: _usBalanceData!['stocks'] as List<dynamic>,
       krProfitData: _krProfitData!,
-      krBalanceData: _krBalanceData!,
+      krBalanceData: _krBalanceData!['stocks'] as List<dynamic>,
       pensionBalanceData: _pensionBalanceData!,
       usExchangeRate: _usExchangeRate,
       onRefresh: _fetchData,
@@ -256,9 +255,9 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
 
     return ProfitScreen(
       usProfitData: _usProfitData!,
-      usBalanceData: _usBalanceData!,
+      usBalanceData: _usBalanceData!['stocks'] as List<dynamic>,
       krProfitData: _krProfitData!,
-      krBalanceData: _krBalanceData!,
+      krBalanceData: _krBalanceData!['stocks'] as List<dynamic>,
       usExchangeRate: _usExchangeRate!,
       krExchangeRate: _krExchangeRate!,
     );
