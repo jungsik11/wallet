@@ -411,7 +411,7 @@ async def get_stock_detail(ticker: str):
         info_params = {"prdt_type_cd": "300", "pdno": ticker} # Added prdt_type_cd
 
         # Using asyncio.gather for concurrent calls
-        price_data_list, info_data = await asyncio.gather(
+        price_data_list, info_data_raw = await asyncio.gather(
             call_mcp_tool(MCP_STOCK_SERVER_URL, "domestic_stock", "inquire_price", price_params),
             call_mcp_tool(MCP_STOCK_SERVER_URL, "domestic_stock", "search_stock_info", info_params)
         )
@@ -421,6 +421,12 @@ async def get_stock_detail(ticker: str):
             price_data = price_data_list[0]
         elif isinstance(price_data_list, dict):
             price_data = price_data_list.get("output", {})
+
+        info_data = {}
+        if isinstance(info_data_raw, list) and len(info_data_raw) > 0:
+            info_data = info_data_raw[0]
+        elif isinstance(info_data_raw, dict):
+            info_data = info_data_raw # Directly assign the dict, no "output" key expected
 
         stock_name = info_data.get("prdt_abrv_name", ticker) if info_data else ticker
 
