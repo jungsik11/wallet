@@ -246,7 +246,7 @@ async def get_account_balance_pension():
     }
 
 @app.get("/ohlcv")
-async def get_ohlcv(ticker: str, timeframe: str = Query('D', description="Timeframe: 'Y' (yearly), 'D' (daily), 'W' (weekly), 'M' (monthly)"), exchange: Optional[str] = Query(None, description="Exchange code (e.g., NAS, NYS, AMS). Required for overseas stocks.")):
+async def get_ohlcv(ticker: str, timeframe: str = Query('D', description="Timeframe: 'Y' (yearly), 'D' (daily), 'W' (weekly), 'M' (monthly)")):
     today = datetime.now()
     # Fetch data for the last year for simplicity
     start_date = today - timedelta(days=365)
@@ -272,7 +272,7 @@ async def get_ohlcv(ticker: str, timeframe: str = Query('D', description="Timefr
             "fid_org_adj_prc": "0" # 0: Adjusted price
         }
         data = await call_mcp_tool(MCP_STOCK_SERVER_URL, "domestic_stock", "inquire_daily_itemchartprice", params)
-        ohlcv_data = data.get("output2", []) # output2 contains the OHLCV data
+        ohlcv_data = data.get("output2", [])
 
         processed_ohlcv = []
         for item in ohlcv_data:
@@ -286,9 +286,6 @@ async def get_ohlcv(ticker: str, timeframe: str = Query('D', description="Timefr
             })
         return {"data": processed_ohlcv}
     else: # Overseas Stock
-        if exchange is None:
-            raise HTTPException(status_code=400, detail="Exchange code is required for overseas stocks.")
-        
         # Map timeframe to gubn for dailyprice tool
         gubn_map = {
             'D': '0',
@@ -298,29 +295,37 @@ async def get_ohlcv(ticker: str, timeframe: str = Query('D', description="Timefr
         }
         gubn_code = gubn_map.get(timeframe.upper(), '0')
 
-        params = {
-            "auth": "", # As per example, can be empty
-            "excd": exchange.upper(),
-            "symb": ticker,
-            "gubn": gubn_code,
-            "bymd": inqr_end_dt, # Inquiry reference date is end date
-            "modp": "0", # 0: Adjusted price
-            "env_dv": "real"
-        }
-        data = await call_mcp_tool(MCP_STOCK_SERVER_URL, "overseas_stock", "dailyprice", params)
-        ohlcv_data = data.get("output2", []) # output2 contains the OHLCV data
+        # List of exchanges to try for overseas stocks
+        exchanges_to_try = ["NAS", "NYS", "AMS"]
+        
+        for exchange in exchanges_to_try:
+            params = {
+                "auth": "",
+                "excd": exchange,
+                "symb": ticker,
+                "gubn": gubn_code,
+                "bymd": inqr_end_dt,
+                "modp": "0",
+                "env_dv": "real"
+            }
+            data = await call_mcp_tool(MCP_STOCK_SERVER_URL, "overseas_stock", "dailyprice", params)
+            ohlcv_data = data.get("output2", [])
 
-        processed_ohlcv = []
-        for item in ohlcv_data:
-            processed_ohlcv.append({
-                "date": item.get("xymd"),
-                "open": safe_float(item.get("open")),
-                "high": safe_float(item.get("high")),
-                "low": safe_float(item.get("low")),
-                "close": safe_float(item.get("clos")),
-                "volume": safe_int(item.get("tvol"))
-            })
-        return {"data": processed_ohlcv}
+            if ohlcv_data: # If data is found, process and return it
+                processed_ohlcv = []
+                for item in ohlcv_data:
+                    processed_ohlcv.append({
+                        "date": item.get("xymd"),
+                        "open": safe_float(item.get("open")),
+                        "high": safe_float(item.get("high")),
+                        "low": safe_float(item.get("low")),
+                        "close": safe_float(item.get("clos")),
+                        "volume": safe_int(item.get("tvol"))
+                    })
+                return {"data": processed_ohlcv}
+        
+        # If loop finishes without finding data, return empty
+        return {"data": []}
 
 @app.get("/current_price/{ticker}")
 async def get_current_price(ticker: str, exchange: str = Query("NAS", description="Exchange code (e.g., NAS, NYS, AMS)")):
