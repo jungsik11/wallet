@@ -9,7 +9,7 @@ import os
 import traceback
 from datetime import datetime, timedelta
 from decimal import Decimal
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 import logging
 from ranking_chart_service import get_ranked_stocks
 
@@ -246,7 +246,7 @@ async def get_account_balance_pension():
     }
 
 @app.get("/ohlcv")
-async def get_ohlcv(ticker: str, timeframe: str = Query('D', description="Timeframe: 'Y' (yearly), 'D' (daily), 'W' (weekly), 'M' (monthly)"), exchange: str = Query("NAS", description="Exchange code (e.g., NAS, NYS, AMS)")):
+async def get_ohlcv(ticker: str, timeframe: str = Query('D', description="Timeframe: 'Y' (yearly), 'D' (daily), 'W' (weekly), 'M' (monthly)"), exchange: Optional[str] = Query(None, description="Exchange code (e.g., NAS, NYS, AMS). Required for overseas stocks.")):
     today = datetime.now()
     # Fetch data for the last year for simplicity
     start_date = today - timedelta(days=365)
@@ -264,7 +264,7 @@ async def get_ohlcv(ticker: str, timeframe: str = Query('D', description="Timefr
     if ticker.isdigit(): # Domestic Stock
         params = {
             "env_dv": "real",
-            "fid_cond_mrkt_div_code": "J", # Assuming KRX for domestic stocks
+            "fid_cond_mrkt_div_code": "J", # Always KRX for domestic stocks
             "fid_input_iscd": ticker,
             "fid_input_date_1": inqr_strt_dt,
             "fid_input_date_2": inqr_end_dt,
@@ -286,6 +286,9 @@ async def get_ohlcv(ticker: str, timeframe: str = Query('D', description="Timefr
             })
         return {"data": processed_ohlcv}
     else: # Overseas Stock
+        if exchange is None:
+            raise HTTPException(status_code=400, detail="Exchange code is required for overseas stocks.")
+        
         # Map timeframe to gubn for dailyprice tool
         gubn_map = {
             'D': '0',
@@ -297,7 +300,7 @@ async def get_ohlcv(ticker: str, timeframe: str = Query('D', description="Timefr
 
         params = {
             "auth": "", # As per example, can be empty
-            "excd": exchange.upper(), # Default to NAS, could be made dynamic
+            "excd": exchange.upper(),
             "symb": ticker,
             "gubn": gubn_code,
             "bymd": inqr_end_dt, # Inquiry reference date is end date

@@ -141,6 +141,12 @@ def test_get_account_balance_pension(mock_call_mcp_tool):
     assert data['cash']['krw'] == 500000
     assert len(data['stocks']) == 1
 
+def test_get_ohlcv_overseas_no_exchange():
+    """Tests the /ohlcv endpoint for overseas stock without exchange, expecting HTTPException."""
+    response = client.get("/ohlcv?ticker=AAPL&timeframe=D")
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Exchange code is required for overseas stocks."
+
 def test_get_ohlcv_daily(mock_call_mcp_tool):
     """Tests the /ohlcv endpoint for daily timeframe."""
     mock_call_mcp_tool.return_value = {"output2": [{"stck_bsop_date": "20240102", "stck_oprc": "100", "stck_hgpr": "110", "stck_lwpr": "98", "stck_clpr": "105", "acml_vol": "10000"}, {"stck_bsop_date": "20240103", "stck_oprc": "105", "stck_hgpr": "115", "stck_lwpr": "103", "stck_clpr": "112", "acml_vol": "12000"}]}
@@ -154,7 +160,7 @@ def test_get_ohlcv_daily(mock_call_mcp_tool):
 def test_get_ohlcv_weekly(mock_call_mcp_tool):
     """Tests the /ohlcv endpoint for weekly timeframe."""
     mock_call_mcp_tool.return_value = {"output2": [{"xymd": "20240105", "open": "100", "high": "115", "low": "98", "clos": "112", "tvol": "22000"}]}
-    response = client.get("/ohlcv?ticker=AAPL&timeframe=W")
+    response = client.get("/ohlcv?ticker=AAPL&timeframe=W&exchange=NAS")
     assert response.status_code == 200
     data = response.json()
     assert 'data' in data
