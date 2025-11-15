@@ -351,42 +351,47 @@ async def get_current_price(ticker: str):
         return {"current_price": 0.0}
 
 @app.get("/stock/{ticker}")
-async def get_stock_detail(ticker: str, exchange: str = Query("NAS", description="Exchange code (e.g., NAS, NYS, AMS)")):
+async def get_stock_detail(ticker: str):
     if not ticker.isdigit(): # Overseas
-        # Define two API calls to be made concurrently
-        price_params = {"auth": "", "excd": exchange.upper(), "symb": ticker}
+        exchanges_to_try = ["NAS", "NYS", "AMS"]
+        price_data = None
+        found_exchange = None
+
+        # First, find the correct exchange and get the price data
+        for exchange in exchanges_to_try:
+            price_params = {"auth": "", "excd": exchange, "symb": ticker}
+            data = await call_mcp_tool(MCP_STOCK_SERVER_URL, "overseas_stock", "price", price_params)
+            if isinstance(data, list) and len(data) > 0 and data[0].get("last"):
+                price_data = data
+                found_exchange = exchange
+                break
         
+        # If not found on any exchange, return a default response
+        if not price_data:
+            return {"name": ticker, "price": 0, "diff": 0, "rate": 0, "volume": 0, "open": 0, "high": 0, "low": 0}
+
+        # Now, get the daily data using the found exchange
         today = datetime.now()
         inqr_end_dt = today.strftime("%Y%m%d")
         daily_params = {
             "auth": "",
-            "excd": exchange.upper(),
+            "excd": found_exchange,
             "symb": ticker,
             "gubn": "0", # Daily
             "bymd": inqr_end_dt,
             "modp": "0",
             "env_dv": "real"
         }
+        daily_data = await call_mcp_tool(MCP_STOCK_SERVER_URL, "overseas_stock", "dailyprice", daily_params)
 
-        # Use asyncio.gather to run both API calls concurrently
-        results = await asyncio.gather(
-            call_mcp_tool(MCP_STOCK_SERVER_URL, "overseas_stock", "price", price_params),
-            call_mcp_tool(MCP_STOCK_SERVER_URL, "overseas_stock", "dailyprice", daily_params)
-        )
-        
-        price_data, daily_data = results
-        
         # Process price_data
-        output = {}
-        if isinstance(price_data, list) and len(price_data) > 0:
-            output = price_data[0]
+        output = price_data[0]
         
         # Process daily_data to get high and low
         high_price = 0.0
         low_price = 0.0
         ohlcv_data = daily_data.get("output2", [])
         if isinstance(ohlcv_data, list) and len(ohlcv_data) > 0:
-            # The first item is the most recent data
             latest_ohlcv = ohlcv_data[0]
             high_price = safe_float(latest_ohlcv.get("high"))
             low_price = safe_float(latest_ohlcv.get("low"))
@@ -403,31 +408,29 @@ async def get_stock_detail(ticker: str, exchange: str = Query("NAS", description
         }
     else: # Domestic
         price_params = {"env_dv": "real", "fid_cond_mrkt_div_code": "J", "fid_input_iscd": ticker}
-        info_params = {"PDNO": ticker} # Assuming PDNO is the parameter for product info
+        # For domestic, we can try to get the name from a different API if needed,
+        # but for now, let's assume inquire_price is enough or another call is added.
+        # A simple solution is to call inquire_product_info.
+        info_params = {"PDNO": ticker}
 
-        results = await asyncio.gather(
+        # Using asyncio.gather for concurrent calls
+        price_data_list, info_data = await asyncio.gather(
             call_mcp_tool(MCP_STOCK_SERVER_URL, "domestic_stock", "inquire_price", price_params),
-            call_mcp_tool(MCP_STOCK_SERVER_URL, "domestic_stock", "inquire_product_info", info_params)
+            call_mcp_tool(MCP_STOCK_SERVER_URL, "domestic_stock", "search_stock_info", info_params)
         )
         
-        price_data, info_data = results
-
-        output = {}
-        if isinstance(price_data, list) and len(price_data) > 0:
-            output = price_data[0]
-        
-        # Assuming info_data is a dict with product name
-        stock_name = info_data.get("prdt_name", "") if isinstance(info_data, dict) else ""
+        price_data = price_data_list.get("output", {})
+        stock_name = info_data.get("prdt_abrv_name", ticker) if info_data else ticker
 
         return {
             "name": stock_name,
-            "price": safe_float(output.get("stck_prpr")),
-            "diff": safe_float(output.get("stck_prdy_diff")),
-            "rate": safe_float(output.get("prdy_ctrt")),
-            "volume": safe_int(output.get("acml_vol")),
-            "open": safe_float(output.get("stck_oprc")),
-            "high": safe_float(output.get("stck_hgpr")),
-            "low": safe_float(output.get("stck_lwpr"))
+            "price": safe_float(price_data.get("stck_prpr")),
+            "diff": safe_float(price_data.get("stck_prdy_diff")),
+            "rate": safe_float(price_data.get("prdy_ctrt")),
+            "volume": safe_int(price_data.get("acml_vol")),
+            "open": safe_float(price_data.get("stck_oprc")),
+            "high": safe_float(price_data.get("stck_hgpr")),
+            "low": safe_float(price_data.get("stck_lwpr"))
         }
 
 @app.get("/ranking/charts")

@@ -195,30 +195,39 @@ def test_get_current_price(mock_call_mcp_tool):
     assert mock_call_mcp_tool.call_count == 1
 
 def test_get_stock_detail(mock_call_mcp_tool):
-    """Tests the /stock/{ticker} endpoint."""
+    """Tests the /stock/{ticker} endpoint with auto-exchange detection."""
     # Mock for overseas stock
+    # 1. First attempt to find exchange (e.g., NAS) fails
+    # 2. Second attempt (e.g., NYS) succeeds for the 'price' call
+    # 3. Third call is for 'dailyprice' using the found exchange (NYS)
     mock_call_mcp_tool.side_effect = [
-        [{"last": "170.0", "diff": "5.0", "rate": "3.0", "tvol": "100000", "base": "165.0"}],
-        {"output2": [{"xymd": "20240103", "open": "168.0", "high": "172.0", "low": "167.0", "clos": "170.0", "tvol": "100000"}]}
+        [{"last": ""}], # price call to NAS fails
+        [{"last": "170.0", "diff": "5.0", "rate": "3.0", "tvol": "100000", "base": "165.0"}], # price call to NYS succeeds
+        {"output2": [{"xymd": "20240103", "open": "168.0", "high": "172.0", "low": "167.0", "clos": "170.0", "tvol": "100000"}]} # dailyprice call to NYS
     ]
-    response = client.get("/stock/AAPL?exchange=NAS")
+    response = client.get("/stock/AAPL")
     assert response.status_code == 200
     data = response.json()
     assert data['name'] == 'AAPL'
     assert data['price'] == 170.0
     assert data['high'] == 172.0
+    assert mock_call_mcp_tool.call_count == 3
 
+    # Reset mock for the next test
+    mock_call_mcp_tool.reset_mock()
+    
     # Mock for domestic stock
     mock_call_mcp_tool.side_effect = [
-        [{"stck_prpr": "80000", "stck_prdy_diff": "1000", "prdy_ctrt": "1.27", "acml_vol": "1000000", "stck_oprc": "79500", "stck_hgpr": "80500", "stck_lwpr": "79000"}],
-        {"prdt_name": "Samsung Electronics"}
+        {"output": {"stck_prpr": "80000", "stck_prdy_diff": "1000", "prdy_ctrt": "1.27", "acml_vol": "1000000", "stck_oprc": "79500", "stck_hgpr": "80500", "stck_lwpr": "79000"}},
+        {"prdt_abrv_name": "Samsung Elec."}
     ]
     response = client.get("/stock/005930")
     assert response.status_code == 200
     data = response.json()
-    assert data['name'] == 'Samsung Electronics'
+    assert data['name'] == 'Samsung Elec.'
     assert data['price'] == 80000
     assert data['high'] == 80500
+    assert mock_call_mcp_tool.call_count == 2
 
 def test_endpoint_not_found():
     """Tests a non-existent endpoint."""
