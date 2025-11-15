@@ -27,7 +27,7 @@ top_n: int = 10
 
 async def _get_top_ranked_stocks() -> List[Dict[str, Any]]:
     """Fetches the top rising stocks from major US exchanges."""
-    all_stocks = []
+    unique_stocks_map: Dict[str, Dict[str, Any]] = {}
 
     for excd_val in ["NYS", "NAS", "AMS"]:
         params = {
@@ -42,19 +42,22 @@ async def _get_top_ranked_stocks() -> List[Dict[str, Any]]:
         if data and data.get('output2'):
             for item in data['output2']:
                 try:
-                    rate_val = float(item.get('rate', 0.0))
-                    all_stocks.append({
-                        "name": item.get('name', '이름 없음'),
-                        "exch": item.get('excd', ''), 
-                        "ticker": item.get('symb', ''),
-                        "price": item.get('last', 0.0),
-                        "diff": item.get('diff', 0.0),
-                        "rate": rate_val,
-                        "volume": item.get('tvol', 0),
-                    })
+                    ticker = item.get('symb', '')
+                    if ticker: # Only add if ticker is not empty
+                        rate_val = float(item.get('rate', 0.0))
+                        unique_stocks_map[ticker] = { # Use ticker as key to ensure uniqueness
+                            "name": item.get('name', '이름 없음'),
+                            "exch": item.get('excd', ''), 
+                            "ticker": ticker,
+                            "price": item.get('last', 0.0),
+                            "diff": item.get('diff', 0.0),
+                            "rate": rate_val,
+                            "volume": item.get('tvol', 0),
+                        }
                 except (ValueError, TypeError):
                     continue # Skip if data is malformed
     
+    all_stocks = list(unique_stocks_map.values())
     # Sort by rate of change in descending order and return
     return sorted(all_stocks, key=lambda x: x['rate'], reverse=True)[:top_n]
 
