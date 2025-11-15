@@ -168,20 +168,31 @@ def test_get_ohlcv_weekly(mock_call_mcp_tool):
     assert mock_call_mcp_tool.call_count == 2
 
 def test_get_current_price(mock_call_mcp_tool):
-    """Tests the /current_price/{ticker} endpoint."""
-    mock_call_mcp_tool.return_value = [{"last": "175.5"}]
+    """Tests the /current_price/{ticker} endpoint with auto-exchange detection."""
+    # Test overseas stock with auto-detection
+    mock_call_mcp_tool.side_effect = [
+        [{"last": ""}], # First attempt (e.g., NAS) fails
+        [{"last": "175.5"}]  # Second attempt (e.g., NYS) succeeds
+    ]
     response = client.get("/current_price/AAPL")
     assert response.status_code == 200
     data = response.json()
     assert 'current_price' in data
     assert data['current_price'] == 175.5
+    assert mock_call_mcp_tool.call_count == 2
 
-    mock_call_mcp_tool.return_value = [{"stck_prpr": "80000"}]
+    # Reset mock for the next test
+    mock_call_mcp_tool.reset_mock()
+    mock_call_mcp_tool.side_effect = None # Clear side_effect
+
+    # Test domestic stock
+    mock_call_mcp_tool.return_value = {"output": {"stck_prpr": "80000"}}
     response = client.get("/current_price/005930")
     assert response.status_code == 200
     data = response.json()
     assert 'current_price' in data
     assert data['current_price'] == 80000
+    assert mock_call_mcp_tool.call_count == 1
 
 def test_get_stock_detail(mock_call_mcp_tool):
     """Tests the /stock/{ticker} endpoint."""

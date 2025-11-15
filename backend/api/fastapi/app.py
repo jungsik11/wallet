@@ -328,12 +328,14 @@ async def get_ohlcv(ticker: str, timeframe: str = Query('D', description="Timefr
         return {"data": []}
 
 @app.get("/current_price/{ticker}")
-async def get_current_price(ticker: str, exchange: str = Query("NAS", description="Exchange code (e.g., NAS, NYS, AMS)")):
+async def get_current_price(ticker: str):
     if not ticker.isdigit(): # Overseas
-        params = {"auth": "", "excd": exchange.upper(), "symb": ticker, "env_dv": "real"}
-        data = await call_mcp_tool(MCP_STOCK_SERVER_URL, "overseas_stock", "price", params)
-        if isinstance(data, list) and len(data) > 0:
-            return {"current_price": safe_float(data[0].get("last"))}
+        exchanges_to_try = ["NAS", "NYS", "AMS"]
+        for exchange in exchanges_to_try:
+            params = {"auth": "", "excd": exchange, "symb": ticker, "env_dv": "real"}
+            data = await call_mcp_tool(MCP_STOCK_SERVER_URL, "overseas_stock", "price", params)
+            if isinstance(data, list) and len(data) > 0 and data[0].get("last"):
+                return {"current_price": safe_float(data[0].get("last"))}
         return {"current_price": 0.0}
     else: # Domestic
         params = {"env_dv": "real", "fid_cond_mrkt_div_code": "J", "fid_input_iscd": ticker}
