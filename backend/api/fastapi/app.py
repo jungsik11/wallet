@@ -408,10 +408,7 @@ async def get_stock_detail(ticker: str):
         }
     else: # Domestic
         price_params = {"env_dv": "real", "fid_cond_mrkt_div_code": "J", "fid_input_iscd": ticker}
-        # For domestic, we can try to get the name from a different API if needed,
-        # but for now, let's assume inquire_price is enough or another call is added.
-        # A simple solution is to call inquire_product_info.
-        info_params = {"PDNO": ticker}
+        info_params = {"prdt_type_cd": "300", "pdno": ticker} # Added prdt_type_cd
 
         # Using asyncio.gather for concurrent calls
         price_data_list, info_data = await asyncio.gather(
@@ -419,7 +416,12 @@ async def get_stock_detail(ticker: str):
             call_mcp_tool(MCP_STOCK_SERVER_URL, "domestic_stock", "search_stock_info", info_params)
         )
         
-        price_data = price_data_list.get("output", {})
+        price_data = {}
+        if isinstance(price_data_list, list) and len(price_data_list) > 0:
+            price_data = price_data_list[0]
+        elif isinstance(price_data_list, dict):
+            price_data = price_data_list.get("output", {})
+
         stock_name = info_data.get("prdt_abrv_name", ticker) if info_data else ticker
 
         return {

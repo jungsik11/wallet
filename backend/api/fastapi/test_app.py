@@ -213,10 +213,25 @@ def test_get_stock_detail(mock_call_mcp_tool):
     assert data['high'] == 172.0
     assert mock_call_mcp_tool.call_count == 3
 
-    # Reset mock for the next test
+    # --- Test domestic stock ---
     mock_call_mcp_tool.reset_mock()
     
-    # Mock for domestic stock
+    # Scenario 1: inquire_price returns a list
+    mock_call_mcp_tool.side_effect = [
+        [{"stck_prpr": "80000", "stck_prdy_diff": "1000", "prdy_ctrt": "1.27", "acml_vol": "1000000", "stck_oprc": "79500", "stck_hgpr": "80500", "stck_lwpr": "79000"}],
+        {"prdt_abrv_name": "Samsung Elec."}
+    ]
+    response = client.get("/stock/005930")
+    assert response.status_code == 200
+    data = response.json()
+    assert data['name'] == 'Samsung Elec.'
+    assert data['price'] == 80000
+    assert data['high'] == 80500
+    assert mock_call_mcp_tool.call_count == 2
+
+    mock_call_mcp_tool.reset_mock()
+
+    # Scenario 2: inquire_price returns a dict
     mock_call_mcp_tool.side_effect = [
         {"output": {"stck_prpr": "80000", "stck_prdy_diff": "1000", "prdy_ctrt": "1.27", "acml_vol": "1000000", "stck_oprc": "79500", "stck_hgpr": "80500", "stck_lwpr": "79000"}},
         {"prdt_abrv_name": "Samsung Elec."}
