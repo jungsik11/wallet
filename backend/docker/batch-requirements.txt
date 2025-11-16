@@ -1,0 +1,8 @@
+python-kis
+pandas
+python-dotenv
+requests
+numpy
+typing-extensions
+
+
