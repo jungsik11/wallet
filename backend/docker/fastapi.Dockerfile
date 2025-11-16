@@ -9,15 +9,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first to leverage Docker caching
-COPY requirements.txt .
+COPY docker/requirements.txt .
 
 # Install Python dependencies
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
-# Copy the application code for API and algorithms
-COPY ../api /app/api
-COPY ../algorithms /app/algorithms
+# Copy the application code
+COPY api/fastapi /app
 
 # Expose the port the app runs on
 EXPOSE 8000
+

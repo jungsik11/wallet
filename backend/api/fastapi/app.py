@@ -20,6 +20,23 @@ import asyncio
 
 from utils import call_mcp_tool, MCP_STOCK_SERVER_URL, MCP_PENSION_SERVER_URL, StockHolding, ProfitResponse
 
+# --- Helper Functions ---
+
+# --- Imports ---
+
+import os
+import traceback
+from datetime import datetime, timedelta
+from decimal import Decimal
+from typing import Any, Dict, List, Optional
+import logging
+from ranking_chart_service import get_ranked_stocks
+
+from dotenv import load_dotenv
+from fastapi import FastAPI, HTTPException, Query
+from pydantic import BaseModel
+import asyncio
+
 def safe_float(value: Any, default: float = 0.0) -> float:
     """Safely convert a value to a float, returning a default on failure."""
     if value is None or value == '':
@@ -51,6 +68,70 @@ app = FastAPI(title="Profit Calculation API")
 
 # --- API Endpoints ---
 
+@app.get("/all_profit_data")
+async def get_all_profit_data(country: str = Query(..., description="Country code (US or KR)")):
+    current_year = datetime.now().year
+    years = list(range(2021, current_year + 1))
+    
+    tasks = [calculate_profit(country=country, year=year) for year in years]
+    
+    profit_data = {}
+    try:
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        for i, year in enumerate(years):
+            if not isinstance(results[i], Exception):
+                profit_data[str(year)] = results[i]
+            else:
+                logging.error(f"Error fetching profit data for {country} year {year}: {results[i]}")
+                profit_data[str(year)] = {} # Return empty dict on error for a specific year
+    except Exception as e:
+        logging.error(f"Unhandled exception in get_all_profit_data for {country}: {e}")
+        # If the gather itself fails, return empty data for all years
+        for year in years:
+            profit_data[str(year)] = {}
+            
+    return profit_data
+
+@app.get("/all_balance_data")
+async def get_all_balance_data():
+    tasks = [
+        get_account_balance(country="US"),
+        get_account_balance(country="KR"),
+        get_account_balance_pension()
+    ]
+    
+    us_balance = {}
+    kr_balance = {}
+    pension_balance = {}
+
+    try:
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        if not isinstance(results[0], Exception):
+            us_balance = results[0]
+        else:
+            logging.error(f"Error fetching US balance data: {results[0]}")
+        
+        if not isinstance(results[1], Exception):
+            kr_balance = results[1]
+        else:
+            logging.error(f"Error fetching KR balance data: {results[1]}")
+
+        if not isinstance(results[2], Exception):
+            pension_balance = results[2]
+        else:
+            logging.error(f"Error fetching pension balance data: {results[2]}")
+
+    except Exception as e:
+        logging.error(f"Unhandled exception in get_all_balance_data: {e}")
+        # All will be empty if gather itself fails
+    
+    return {
+        "us_balance_data": us_balance,
+        "kr_balance_data": kr_balance,
+        "pension_balance_data": pension_balance,
+    }
+
 @app.get("/account_balance")
 async def get_account_balance(country: str = Query(None, description="Country code (US or KR)")):
     if country == "KR":
@@ -60,7 +141,9 @@ async def get_account_balance(country: str = Query(None, description="Country co
             "afhr_flpr_yn": "N", "inqr_dvsn": "01", "unpr_dvsn": "01",
             "fund_sttl_icld_yn": "N", "fncg_amt_auto_rdpt_yn": "N", "prcs_dvsn": "00"
         }
+        logging.info(f"DEBUG: Calling MCP tool for KR account balance with api_type='domestic_stock', specific_api_type='inquire_balance', params={params}")
         data = await call_mcp_tool(MCP_STOCK_SERVER_URL, "domestic_stock", "inquire_balance", params)
+        logging.info(f"DEBUG: Raw data received from MCP tool for KR account balance: {data}")
         stocks = data.get("output1", [])
         summary = data.get("output2", [{}])[0]
 
@@ -82,7 +165,9 @@ async def get_account_balance(country: str = Query(None, description="Country co
             "tr_mket_cd": "00",         # 00 : 전체 (All Markets)
             "inqr_dvsn_cd": "00",       # 00 : 전체 (All Inquiry Divisions)
         }
+        logging.info(f"DEBUG: Calling MCP tool for US account balance with api_type='overseas_stock', specific_api_type='inquire_present_balance', params={params}")
         data = await call_mcp_tool(MCP_STOCK_SERVER_URL, "overseas_stock", "inquire_present_balance", params)
+        logging.info(f"DEBUG: Raw data received from MCP tool for US account balance: {data}")
         
         stocks = data.get("output1", [])
         summary_output2 = data.get("output2", [{}])[0]
@@ -102,20 +187,20 @@ async def get_account_balance(country: str = Query(None, description="Country co
                     "profit_loss_usd": safe_float(s.get("evlu_pfls_amt2")),
                     "currency": s.get("buy_crcy_cd")
                 } for s in stocks
-            ]
+            ],
+            "exchange_rate": safe_float(summary_output2.get('frst_bltn_exrt', 0 )) # Add exchange rate to the response
         }    
     else:
         raise HTTPException(status_code=400, detail="Country must be KR or US")
 
-@app.get("/calculate_profit", response_model=ProfitResponse)
-async def calculate_profit(country: str = Query("US", description="Country code (US or KR)"), year: int = None):
+@app.get("/calculate_profit")
+async def calculate_profit(country: str = Query(..., description="Country code (US or KR)"), year: int = Query(..., description="Year for profit calculation (e.g., 2021)")):
     
-    target_year = year if year is not None else datetime.now().year
-    inqr_strt_dt = f"{target_year}0101"
-    inqr_end_dt = f"{target_year}1231"
+    inqr_strt_dt = f"{year}0101"
+    inqr_end_dt = f"{year}1231"
 
     if country == "US":
-        params = {
+        us_params = {
             "cano": os.getenv("KIS_ACNT")[:8],
             "acnt_prdt_cd": os.getenv("KIS_ACNT")[9:],
             "ovrs_excg_cd": "NASD",  # For US, use NASD for consolidated
@@ -128,35 +213,44 @@ async def calculate_profit(country: str = Query("US", description="Country code 
             "FK200": "",
             "NK200": "",
         }
-        data = await call_mcp_tool(MCP_STOCK_SERVER_URL, "overseas_stock", "inquire_period_profit", params)
+        us_data = await call_mcp_tool(MCP_STOCK_SERVER_URL, "overseas_stock", "inquire_period_profit", us_params)
 
-        stocks_profit_data = data.get("output1", [])
-        overall_profit_summary = data.get("output2", [{}])[0]
+        us_stocks_profit_data = us_data.get("output1", [])
+        us_overall_profit_summary = us_data.get("output2", [{}])[0]
 
-        yearly_total_profit = {"USD": safe_float(overall_profit_summary.get("ovrs_rlzt_pfls_tot_amt"))}
+        total_usd_profit_for_year = safe_float(us_overall_profit_summary.get("ovrs_rlzt_pfls_tot_amt"))
         
-        processed_stocks = []
-        for s in stocks_profit_data:
-            processed_stocks.append(StockHolding(
-                yearly_profit={"USD": safe_float(s.get("ovrs_rlzt_pfls_amt"))},
-                holdings={
+        all_processed_stocks_usd: Dict[str, Dict[str, Any]] = {} # ticker -> {name, market, currency, cumulative_profit_usd}
+        for s in us_stocks_profit_data:
+            ticker = s.get("ovrs_pdno")
+            if ticker not in all_processed_stocks_usd:
+                all_processed_stocks_usd[ticker] = {
                     "name": s.get("ovrs_item_name"),
-                    "ticker": s.get("ovrs_pdno"),
+                    "ticker": ticker,
                     "market": s.get("ovrs_excg_cd"),
-                    "currency": "USD"
+                    "currency": "USD",
+                    "yearly_profit_usd": 0.0 # Changed to yearly_profit_usd
+                }
+            stock_usd_profit = safe_float(s.get("ovrs_rlzt_pfls_amt"))
+            all_processed_stocks_usd[ticker]["yearly_profit_usd"] += stock_usd_profit # Changed to yearly_profit_usd
+        
+        final_stocks_output_usd = []
+        for ticker, details in all_processed_stocks_usd.items():
+            final_stocks_output_usd.append(StockHolding(
+                yearly_profit={"USD": details["yearly_profit_usd"]}, # Changed to yearly_profit_usd
+                holdings={
+                    "name": details["name"],
+                    "ticker": details["ticker"],
+                    "market": details["market"],
+                    "currency": details["currency"]
                 }
             ))
+        
+        logging.info(f"DEBUG: US yearly_profit_usd for {year}: {total_usd_profit_for_year}")
+        return {"yearly_profit_usd": total_usd_profit_for_year, "stocks": final_stocks_output_usd}
 
-        return {"yearly_total_profit": yearly_total_profit, "stocks": processed_stocks}
-    
     elif country == "KR":
-        # This implementation is based on the hypothesis that a bulk call to 
-        # inquire_period_trade_profit gives a list of stocks, but not their P/L,
-        # and that a second call is needed for each stock to get its specific P/L.
-        # Logging is added to verify this hypothesis.
-
-        # 1. Get all stocks with trades in the period to get the list of tickers
-        all_trades_params = {
+        kr_all_trades_params = {
             "cano": os.getenv("KIS_ACNT")[:8],
             "acnt_prdt_cd": os.getenv("KIS_ACNT")[9:],
             "inqr_strt_dt": inqr_strt_dt,
@@ -166,60 +260,52 @@ async def calculate_profit(country: str = Query("US", description="Country code 
             "pdno": "",  # Empty to get all stocks with trades
             "tr_cont": "",
         }
-        all_trades_data = await call_mcp_tool(
-            MCP_STOCK_SERVER_URL, "domestic_stock", "inquire_period_trade_profit", all_trades_params
+        kr_all_trades_data = await call_mcp_tool(
+            MCP_STOCK_SERVER_URL, "domestic_stock", "inquire_period_trade_profit", kr_all_trades_params
         )
         
-        stocks_with_trades = all_trades_data.get("output1", [])
-        overall_summary = all_trades_data.get("output2", [{}])[0]
-        # Using 'tot_rlzt_pfls' based on the user's log for the other API, assuming it might be similar.
-        # If not, the single-stock calls will provide the definitive total.
-        total_profit = safe_float(overall_summary.get("tot_rlzt_pfls", overall_summary.get("rlzt_pfls_amt")))
-
-        processed_stocks = []
+        kr_stocks_with_trades = kr_all_trades_data.get("output1", [])
+        kr_overall_summary = kr_all_trades_data.get("output2", [{}])[0]
         
-        # Create a unique list of stocks (pdno and prdt_name)
-        unique_stocks = {
-            (s.get("pdno"), s.get("prdt_name")) for s in stocks_with_trades if s.get("pdno")
-        }
+        total_krw_profit_for_year = safe_float(kr_overall_summary.get("tot_rlzt_pfls", kr_overall_summary.get("rlzt_pfls_amt")))
+        
+        all_processed_stocks_krw: Dict[str, Dict[str, Any]] = {} # ticker -> {name, market, currency, cumulative_profit_krw}
 
-        # 2. For each unique stock, get its specific profit/loss for the period
-        actual_total_profit = 0.0
-        for pdno, prdt_name in unique_stocks:
-            single_stock_params = {
-                "cano": os.getenv("KIS_ACNT")[:8],
-                "acnt_prdt_cd": os.getenv("KIS_ACNT")[9:],
-                "inqr_strt_dt": inqr_strt_dt,
-                "inqr_end_dt": inqr_end_dt,
-                "sort_dvsn": "00",
-                "cblc_dvsn": "00",
-                "pdno": pdno,  # Specific stock ticker
-                "tr_cont": "",
-            }
-            
-            single_stock_data = await call_mcp_tool(
-                MCP_STOCK_SERVER_URL, "domestic_stock", "inquire_period_trade_profit", single_stock_params
-            )
-            
-            # The summary output (output2) of a single-stock query should give the P/L for that stock
-            stock_summary = single_stock_data.get("output2", [{}])[0]
-            # Assuming the realized profit field is 'rlzt_pfls_amt' or 'tot_rlzt_pfls'
-            realized_profit = safe_float(stock_summary.get("tot_rlzt_pfls", stock_summary.get("rlzt_pfls_amt")))
-            actual_total_profit += realized_profit
+        # Optimized logic: Process trades from the single API call
+        for trade in kr_stocks_with_trades:
+            pdno = trade.get("pdno")
+            prdt_name = trade.get("prdt_name")
+            realized_profit = safe_float(trade.get("rlzt_pfls_amt"))
 
-            processed_stocks.append(StockHolding(
-                yearly_profit={"KRW": realized_profit},
-                holdings={
+            if not pdno:
+                continue
+
+            if pdno not in all_processed_stocks_krw:
+                all_processed_stocks_krw[pdno] = {
                     "name": prdt_name,
                     "ticker": pdno,
                     "market": "KRX",
-                    "currency": "KRW"
+                    "currency": "KRW",
+                    "yearly_profit_krw": 0.0
+                }
+            all_processed_stocks_krw[pdno]["yearly_profit_krw"] += realized_profit
+        
+        final_stocks_output_krw = []
+        for ticker, details in all_processed_stocks_krw.items():
+            final_stocks_output_krw.append(StockHolding(
+                yearly_profit={"KRW": details["yearly_profit_krw"]}, # Changed to yearly_profit_krw
+                holdings={
+                    "name": details["name"],
+                    "ticker": details["ticker"],
+                    "market": details["market"],
+                    "currency": details["currency"]
                 }
             ))
-
-        # Use the sum of individual profits as the final total, as it's more reliable
-        return {"yearly_total_profit": {"KRW": actual_total_profit}, "stocks": processed_stocks}
-    raise HTTPException(status_code=400, detail="Country must be US or KR")
+        logging.info(f"DEBUG: KR yearly_profit_krw for {year}: {total_krw_profit_for_year}")
+        return {"yearly_profit_krw": total_krw_profit_for_year, "stocks": final_stocks_output_krw}
+    
+    else:
+        raise HTTPException(status_code=400, detail="Country must be US or KR")
 
 @app.get("/account_balance_pension")
 async def get_account_balance_pension():
@@ -450,13 +536,41 @@ async def get_ranking_charts():
 
 @app.get("/screener/us-market-cap-ranking")
 async def get_us_market_cap_ranking():
-    all_stocks = []
+    unique_stocks_map: Dict[str, Dict[str, Any]] = {}
     for excd in ["NYS", "NAS", "AMS"]:
-        params = {"excd": excd, "vol_rang": "0"}
-        data = await call_mcp_tool(MCP_STOCK_SERVER_URL, "overseas_stock", "market_cap", params)
+        logging.warning(f"Fetching market cap ranking from exchange: {excd} using inquire_search")
+        params = {
+            "auth": "",
+            "excd": excd,
+            "co_yn_pricecur": "0", "co_st_pricecur": None, "co_en_pricecur": None,
+            "co_yn_rate": "0", "co_st_rate": None, "co_en_rate": None,
+            "co_yn_valx": "1", # Enable market cap filtering
+            "co_st_valx": "500000000", # Start market cap (500 billion USD, in thousands)
+            "co_en_valx": "9999999999999", # End market cap (a very large number)
+            "co_yn_shar": "0", "co_st_shar": None, "co_en_shar": None,
+            "co_yn_volume": "0", "co_st_volume": None, "co_en_volume": None,
+            "co_yn_amt": "0", "co_st_amt": None, "co_en_amt": None,
+            "co_yn_eps": "0", "co_st_eps": None, "co_en_eps": None,
+            "co_yn_per": "0", "co_st_per": None, "co_en_per": None,
+            "keyb": ""
+        }
+        data = await call_mcp_tool(MCP_STOCK_SERVER_URL, "overseas_stock", "inquire_search", params)
         if data and data.get("output2"):
-            all_stocks.extend(data["output2"])
-    return all_stocks
+            items_found_for_exchange = 0
+            for item in data["output2"]:
+                ticker = item.get("symb", "")
+                if ticker:
+                    # The 'valx' field from inquire_search is market cap in thousands
+                    item['market_cap'] = safe_float(item.get('valx', 0)) * 1000 # Convert to actual value
+                    unique_stocks_map[ticker] = item # Use ticker as key to ensure uniqueness
+                    items_found_for_exchange += 1
+            logging.warning(f"Found {items_found_for_exchange} items from {excd}. Current unique map size: {len(unique_stocks_map)}")
+    
+    all_stocks = list(unique_stocks_map.values())
+    # Sort by market_cap in descending order
+    sorted_stocks = sorted(all_stocks, key=lambda x: x.get('market_cap', 0), reverse=True)
+    logging.warning(f"Final unique stocks for market cap ranking: {len(sorted_stocks)} items.")
+    return sorted_stocks
 
 @app.get("/check_mcp_connectivity")
 async def check_mcp_connectivity():
@@ -480,7 +594,7 @@ async def check_mcp_connectivity():
         async with Client(f"{MCP_PENSION_SERVER_URL}/sse") as client:
             results["pension_mcp_connectivity"] = "Connected"
     except Exception as e:
-        results["pension_mcp_connectivity"] = f"Failed to connect: {e}"
+        results["pcp_mcp_connectivity"] = f"Failed to connect: {e}"
         logging.error(f"Pension MCP connectivity check failed: {e}")
 
     return results

@@ -5,9 +5,9 @@ import 'yearly_profit_screen.dart';
 import 'responsive_text.dart'; // Add this import
 
 class ProfitScreen extends StatefulWidget {
-  final Map<String, dynamic> usProfitData;
+  final Map<String, Map<String, dynamic>> usProfitData;
   final List<dynamic> usBalanceData;
-  final Map<String, dynamic> krProfitData;
+  final Map<String, Map<String, dynamic>> krProfitData;
   final List<dynamic> krBalanceData;
   final double? usExchangeRate; // Add this
   final double? krExchangeRate; // Add this
@@ -46,14 +46,23 @@ class _ProfitScreenState extends State<ProfitScreen> {
     Widget buildDataView() {
       final currentYear = DateTime.now().year.toString();
 
-      // Create profit responses for both US and KR
-      final usProfitResponse = ProfitResponse.fromJson(widget.usProfitData);
-      final krProfitResponse = ProfitResponse.fromJson(widget.krProfitData);
+      // Get profit data for the current year for the selected country
+      final Map<String, dynamic>? usProfitDataForCurrentYear = widget.usProfitData[currentYear];
+      final Map<String, dynamic>? krProfitDataForCurrentYear = widget.krProfitData[currentYear];
 
-      final profitResponseForSelectedCountry = _selectedCountry == 'US' ? usProfitResponse : krProfitResponse;
+      final ProfitResponse profitResponseForSelectedCountry;
+      if (_selectedCountry == 'US') {
+        profitResponseForSelectedCountry = ProfitResponse.fromJson(usProfitDataForCurrentYear ?? {});
+      } else {
+        profitResponseForSelectedCountry = ProfitResponse.fromJson(krProfitDataForCurrentYear ?? {});
+      }
+      
       final balanceDataForSelectedCountry = _selectedCountry == 'US' ? widget.usBalanceData : widget.krBalanceData;
 
-      final currentYearProfit = profitResponseForSelectedCountry.yearlyTotalProfit[currentYear] ?? 0.0;
+      final currentYearProfit = _selectedCountry == 'US' 
+          ? (usProfitDataForCurrentYear?['yearly_profit_usd'] as num?)?.toDouble() ?? 0.0
+          : (krProfitDataForCurrentYear?['yearly_profit_krw'] as num?)?.toDouble() ?? 0.0;
+      
       final currencyUnit = _selectedCountry == 'KR' ? '(만원)' : '(USD)';
 
       final sortedBalanceData = List.from(balanceDataForSelectedCountry)
@@ -105,11 +114,50 @@ class _ProfitScreenState extends State<ProfitScreen> {
                       children: [
                         TextButton(
                           onPressed: () {
+                            final profitData = _selectedCountry == 'US' ? widget.usProfitData : widget.krProfitData;
+
+                            Map<String, double> combinedYearlyTotalProfit = {};
+                            Map<String, StockHolding> tempStocks = {};
+
+                            for (final entry in profitData.entries) {
+                              final year = entry.key;
+                              final yearData = entry.value;
+
+                              if (yearData.isEmpty) continue;
+
+                              // Manually construct the yearly total profit
+                              final profit = _selectedCountry == 'US'
+                                  ? (yearData['yearly_profit_usd'] as num?)?.toDouble() ?? 0.0
+                                  : (yearData['yearly_profit_krw'] as num?)?.toDouble() ?? 0.0;
+                              if (profit != 0.0) {
+                                combinedYearlyTotalProfit[year] = profit;
+                              }
+
+                              // Still need to parse for stocks
+                              final response = ProfitResponse.fromJson(yearData);
+                              for (final stockMap in response.stocks) {
+                                final ticker = stockMap.keys.first;
+                                final holding = stockMap.values.first;
+                                if (tempStocks.containsKey(ticker)) {
+                                  tempStocks[ticker]!.yearlyProfit.addAll(holding.yearlyProfit);
+                                } else {
+                                  tempStocks[ticker] = holding;
+                                }
+                              }
+                            }
+
+                            final combinedStocksList = tempStocks.entries.map((e) => {e.key: e.value}).toList();
+
+                            final aggregatedProfitResponse = ProfitResponse(
+                              yearlyTotalProfit: combinedYearlyTotalProfit,
+                              stocks: combinedStocksList,
+                            );
+
                             Navigator.push(
                               context,
                               MaterialPageRoute(
                                 builder: (context) => YearlyProfitScreen(
-                                  profitResponse: profitResponseForSelectedCountry, // Use the correct profit response
+                                  profitResponse: aggregatedProfitResponse,
                                   country: _selectedCountry,
                                 ),
                               ),
@@ -157,9 +205,9 @@ class _ProfitScreenState extends State<ProfitScreen> {
                   StockHolding? stockProfitData;
 
                   // Determine which profitResponse to use for realized PnL
-                  if (isUsdStock) {
+                  if (_selectedCountry == 'US') {
                     // For USD stocks, always look in US profit data
-                    for (var stockMap in usProfitResponse.stocks) { // Use usProfitResponse
+                    for (var stockMap in profitResponseForSelectedCountry.stocks) { // Use usProfitResponse
                       if (stockMap.keys.first == ticker) {
                         stockProfitData = stockMap.values.first;
                         break;
@@ -167,7 +215,7 @@ class _ProfitScreenState extends State<ProfitScreen> {
                     }
                   } else {
                     // For KRW stocks, always look in KR profit data
-                    for (var stockMap in krProfitResponse.stocks) { // Use krProfitResponse
+                    for (var stockMap in profitResponseForSelectedCountry.stocks) { // Use krProfitResponse
                       if (stockMap.keys.first == ticker) {
                         stockProfitData = stockMap.values.first;
                         break;
@@ -179,18 +227,18 @@ class _ProfitScreenState extends State<ProfitScreen> {
                     unrealizedPnl = (holding['profit_loss_usd'] as num?)?.toDouble() ?? 0.0;
                     currentPrice = (holding['current_price'] as num?)?.toDouble() ?? 0.0;
                     avgPrice = (holding['average_price'] as num?)?.toDouble() ?? 0.0;
-                    realizedPnl = (stockProfitData?.yearlyProfit[currentYear] as num?)?.toDouble() ?? 0.0;
+                    realizedPnl = (stockProfitData?.yearlyProfit['USD'] as num?)?.toDouble() ?? 0.0; // Changed to 'USD'
                   } else { // _selectedCountry == 'KR'
                     unrealizedPnl = (holding['profit_loss'] as num?)?.toDouble() ?? 0.0;
                     if (isUsdStock && widget.krExchangeRate != null) {
                       currentPrice = ((holding['current_price'] as num?)?.toDouble() ?? 0.0) * widget.krExchangeRate!;
                       avgPrice = ((holding['average_price'] as num?)?.toDouble() ?? 0.0) * widget.krExchangeRate!;
-                      realizedPnl = (stockProfitData?.yearlyProfit[currentYear] as num?)?.toDouble() ?? 0.0;
+                      realizedPnl = (stockProfitData?.yearlyProfit['KRW'] as num?)?.toDouble() ?? 0.0; // Changed to 'KRW'
                       realizedPnl = realizedPnl * widget.krExchangeRate!;
                     } else {
                       currentPrice = (holding['current_price'] as num?)?.toDouble() ?? 0.0;
                       avgPrice = (holding['average_price'] as num?)?.toDouble() ?? 0.0;
-                      realizedPnl = (stockProfitData?.yearlyProfit[currentYear] as num?)?.toDouble() ?? 0.0;
+                      realizedPnl = (stockProfitData?.yearlyProfit['KRW'] as num?)?.toDouble() ?? 0.0; // Changed to 'KRW'
                     }
                   }
 

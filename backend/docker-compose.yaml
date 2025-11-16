@@ -1,7 +1,8 @@
-
-
 services:
   api:
+    build:
+      context: .
+      dockerfile: docker/fastapi.Dockerfile
     image: backend-api:latest
     container_name: fast-api
     ports:
@@ -9,9 +10,46 @@ services:
     env_file:
       - ./.env
     volumes:
-      - ./api:/app
+      - ./api/fastapi:/app
     restart: unless-stopped
     command: uvicorn app:app --host 0.0.0.0 --port 8000
+    depends_on:
+      - kis-trade-mcp-stock
+      - kis-trade-mcp-pension
+
+  spring-api:
+    build:
+      context: ./api/spring
+    container_name: spring-api
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+
+  kis-trade-mcp-stock:
+    image: kis-trade-mcp:latest
+    container_name: kis-trade-mcp-stock
+    ports:
+      - "3001:3000"
+    environment:
+      KIS_APP_KEY: ${KIS_APPKEY}
+      KIS_APP_SECRET: ${KIS_SECRET}
+      KIS_HTS_ID: ${KIS_ID}
+      KIS_ACCT_STOCK: ${KIS_ACCT_STOCK1}
+      KIS_PROD_TYPE: ${KIS_PROD_TYPE1}
+    restart: unless-stopped
+
+  kis-trade-mcp-pension:
+    image: kis-trade-mcp:latest
+    container_name: kis-trade-mcp-pension
+    ports:
+      - "3002:3000"
+    environment:
+      KIS_APP_KEY: ${KIS_APPKEY2}
+      KIS_APP_SECRET: ${KIS_SECRET2}
+      KIS_HTS_ID: ${KIS_ID}
+      KIS_ACCT_STOCK: ${KIS_ACCT_STOCK2}
+      KIS_PROD_TYPE: ${KIS_PROD_TYPE2}
+    restart: unless-stopped
 
   batch-app:
     image: batch-app:latest

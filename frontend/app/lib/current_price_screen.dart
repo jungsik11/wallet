@@ -1,30 +1,19 @@
 import 'package:flutter/material.dart';
-import 'dart:convert';
 import 'package:app/services/wallet_api_service.dart';
 import 'package:intl/intl.dart';
-import 'package:app/stock_chart_and_details_view.dart';
 
 class CurrentPriceScreen extends StatefulWidget {
   final Function(String) onTickerSelected;
+  final String ticker; // Add ticker parameter
 
-  const CurrentPriceScreen({Key? key, required this.onTickerSelected}) : super(key: key);
+  const CurrentPriceScreen({Key? key, required this.onTickerSelected, required this.ticker}) : super(key: key);
 
   @override
   _CurrentPriceScreenState createState() => _CurrentPriceScreenState();
 }
 
 class _CurrentPriceScreenState extends State<CurrentPriceScreen> {
-  double _parseToDouble(dynamic value) {
-    if (value == null) return 0.0;
-    if (value is String) {
-      return double.tryParse(value) ?? 0.0;
-    } else if (value is num) {
-      return value.toDouble();
-    }
-    return 0.0;
-  }
-
-  List<dynamic> _usScreenedStocks = [];
+  Map<String, dynamic>? _stockDetail;
   bool _isLoading = false;
   String? _error;
 
@@ -33,28 +22,50 @@ class _CurrentPriceScreenState extends State<CurrentPriceScreen> {
   @override
   void initState() {
     super.initState();
-    _fetchUsScreenedStocks();
+    _fetchCurrentPrice();
   }
 
-  Future<void> _fetchUsScreenedStocks() async {
+  @override
+  void didUpdateWidget(covariant CurrentPriceScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.ticker != oldWidget.ticker) {
+      _fetchCurrentPrice();
+    }
+  }
+
+  Future<void> _fetchCurrentPrice() async {
+    if (widget.ticker.isEmpty) {
+      setState(() {
+        _error = '티커가 제공되지 않았습니다.';
+        _stockDetail = null;
+      });
+      return;
+    }
+
     setState(() {
       _isLoading = true;
       _error = null;
     });
 
     try {
-      final screenedData = await _apiService.fetchUsMarketCapRanking();
-      setState(() {
-        _usScreenedStocks = screenedData;
-      });
+      final stockDetailData = await _apiService.fetchStockDetail(widget.ticker);
+      if (mounted) {
+        setState(() {
+          _stockDetail = stockDetailData;
+        });
+      }
     } catch (e) {
-      setState(() {
-        _error = '미국 장기 스크리닝 데이터를 불러오는 데 실패했습니다: ${e.toString()}';
-      });
+      if (mounted) {
+        setState(() {
+          _error = '현재가 데이터를 불러오는 데 실패했습니다: ${e.toString()}';
+        });
+      }
     } finally {
-      setState(() {
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 
@@ -62,66 +73,104 @@ class _CurrentPriceScreenState extends State<CurrentPriceScreen> {
     if (price == null) {
       return 'N/A';
     }
-    double value = _parseToDouble(price);
+    double? value = double.tryParse(price.toString());
+    if (value == null) {
+      return 'N/A';
+    }
     final formatter = NumberFormat('#.####');
     return formatter.format(value);
   }
 
-
-
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: SingleChildScrollView(
-          child: Column(
-            children: [
+    final theme = Theme.of(context);
 
-              const Text('미국 장기 스크리닝 종목', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-              _isLoading && _usScreenedStocks.isEmpty
-                  ? const Center(child: CircularProgressIndicator())
-                  : _error != null && _usScreenedStocks.isEmpty
-                      ? Center(child: Text(_error!, style: const TextStyle(color: Colors.red)))
-                      : _usScreenedStocks.isEmpty
-                          ? const Center(child: Text('미국 장기 스크리닝 데이터가 없습니다.'))
-                          : SingleChildScrollView(
-                              scrollDirection: Axis.horizontal,
-                              child: DataTable(
-                                columns: const [
-                                  DataColumn(label: Text('티커')),
-                                  DataColumn(label: Text('종목명')),
-                                  DataColumn(label: Text('현재가')),
-                                  DataColumn(label: Text('등락률')),
-                                  DataColumn(label: Text('시가총액')),
-                                ],
-                                rows: _usScreenedStocks.asMap().entries.map<DataRow>((entry) {
-                                  var stock = entry.value;
-                                  final ticker = stock['ticker'];
-                                  return DataRow(
-                                    cells: [
-                                      DataCell(
-                                        InkWell(
-                                          onTap: () {
-                                            if (ticker != null) {
-                                              widget.onTickerSelected(ticker);
-                                            }
-                                          },
-                                          child: Text(stock['ticker'] ?? 'N/A'),
-                                        ),
-                                      ),
-                                      DataCell(Text(stock['name'] ?? 'N/A')),
-                                      DataCell(Text(formatPrice(stock['price']))),
-                                      DataCell(Text('${stock['rate']?.toString() ?? 'N/A'}%')),
-                                      DataCell(Text(stock['mcap'] != null ? NumberFormat.compact().format(stock['mcap']) : 'N/A')),
-                                    ],
-                                  );
-                                }).toList(),
-                              ),
-                            ),
+    if (_isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    if (_error != null) {
+      return Center(child: Text(_error!, style: const TextStyle(color: Colors.red)));
+    }
+
+    if (_stockDetail == null || _stockDetail!.isEmpty) {
+      return const Center(child: Text('현재가 데이터가 없습니다.'));
+    }
+
+    final price = _stockDetail!['price'] ?? 0;
+    final diff = _stockDetail!['diff'] ?? 0;
+    final rate = _stockDetail!['rate'] ?? 0;
+    final volume = _stockDetail!['volume'] ?? 'N/A';
+    final open = _stockDetail!['open'] ?? 0;
+    final high = _stockDetail!['high'] ?? 0;
+    final low = _stockDetail!['low'] ?? 0;
+    final name = _stockDetail!['name'] ?? 'N/A';
+
+    final isKrw = RegExp(r'^\d{6}$').hasMatch(widget.ticker);
+    final priceColor = diff > 0 ? Colors.red : (diff < 0 ? Colors.blue : Colors.grey);
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            name,
+            style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
+          ),
+          Text(
+            widget.ticker,
+            style: theme.textTheme.titleMedium?.copyWith(color: Colors.grey[600]),
+          ),
+          const SizedBox(height: 16),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                isKrw ? NumberFormat('#,###').format(price) : formatPrice(price),
+                style: theme.textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.bold, color: priceColor),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                isKrw ? 'KRW' : 'USD',
+                style: theme.textTheme.titleMedium?.copyWith(color: Colors.grey[600]),
+              ),
             ],
           ),
-        ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Text(
+                '${diff > 0 ? '▲' : '▼'} ${isKrw ? NumberFormat('#,###').format(diff) : formatPrice(diff)}',
+                style: theme.textTheme.titleMedium?.copyWith(color: priceColor),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                '(${rate.toStringAsFixed(2)}%)',
+                style: theme.textTheme.titleMedium?.copyWith(color: priceColor),
+              ),
+            ],
+          ),
+          const SizedBox(height: 24),
+          _buildDetailRow('시가', isKrw ? NumberFormat('#,###').format(open) : formatPrice(open)),
+          _buildDetailRow('고가', isKrw ? NumberFormat('#,###').format(high) : formatPrice(high)),
+          _buildDetailRow('저가', isKrw ? NumberFormat('#,###').format(low) : formatPrice(low)),
+          _buildDetailRow('거래량', NumberFormat.compact().format(volume)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDetailRow(String title, String value) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4.0),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(title, style: theme.textTheme.titleMedium?.copyWith(color: Colors.grey[600])),
+          Text(value, style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+        ],
       ),
     );
   }

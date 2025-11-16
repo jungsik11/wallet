@@ -3,9 +3,9 @@ import 'package:syncfusion_flutter_charts/charts.dart';
 import 'package:intl/intl.dart';
 
 class HomeScreen extends StatefulWidget {
-  final Map<String, dynamic> usProfitData;
+  final Map<String, Map<String, dynamic>> usProfitData;
   final List<dynamic> usBalanceData;
-  final Map<String, dynamic> krProfitData;
+  final Map<String, Map<String, dynamic>> krProfitData;
   final List<dynamic> krBalanceData;
   final Map<String, dynamic> pensionBalanceData;
   final double? usExchangeRate;
@@ -29,8 +29,6 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
-    // Extract current estimated profit/loss for US and KR stocks
-    // Assuming 'total_profit' key holds the current profit/loss
     final double usCurrentProfitUsd = widget.usBalanceData
         .where((item) => item['currency'] == 'USD') // Filter for USD stocks
         .fold<double>(0.0, (sum, item) => sum + ((item['profit_loss_usd'] as num?)?.toDouble() ?? 0.0));
@@ -42,15 +40,18 @@ class _HomeScreenState extends State<HomeScreen> {
 
     // Calculate total realized profit/loss for the very top display
     double totalRealizedProfitKrw = 0.0;
-    if (widget.usProfitData['yearly_total_profit'] != null) {
-      (widget.usProfitData['yearly_total_profit'] as Map<String, dynamic>).forEach((year, profit) {
-        totalRealizedProfitKrw += (profit as num).toDouble() * (widget.usExchangeRate ?? 1.0);
-      });
-    }
-    if (widget.krProfitData['yearly_total_profit'] != null) {
-      (widget.krProfitData['yearly_total_profit'] as Map<String, dynamic>).forEach((year, profit) {
-        totalRealizedProfitKrw += (profit as num).toDouble();
-      });
+    Map<String, double> yearlyCombinedProfitRaw = {}; // Store raw KRW values for yearly combined profit
+
+    for (int year = 2021; year <= 2025; year++) {
+      final String yearStr = year.toString();
+      double usProfitForYear = (widget.usProfitData[yearStr]?['yearly_profit_usd'] as num?)?.toDouble() ?? 0.0;
+      double krProfitForYear = (widget.krProfitData[yearStr]?['yearly_profit_krw'] as num?)?.toDouble() ?? 0.0;
+
+      double usProfitForYearKrw = usProfitForYear * (widget.usExchangeRate ?? 1.0);
+      double combinedProfitForYearKrw = usProfitForYearKrw + krProfitForYear;
+      yearlyCombinedProfitRaw[yearStr] = combinedProfitForYearKrw; // Store raw KRW value
+
+      totalRealizedProfitKrw += combinedProfitForYearKrw;
     }
     final double displayTotalRealizedProfit = totalRealizedProfitKrw;
 
@@ -60,23 +61,15 @@ class _HomeScreenState extends State<HomeScreen> {
     // Calculate cumulative profit for the very top display
     final double displayCumulativeProfit = displayTotalRealizedProfit + displayTotalUnrealizedProfit;
 
-    // Calculate yearly combined profit for the table
-    Map<String, double> yearlyCombinedProfit = {};
-    if (widget.usProfitData['yearly_total_profit'] != null) {
-      (widget.usProfitData['yearly_total_profit'] as Map<String, dynamic>).forEach((year, profit) {
-        yearlyCombinedProfit[year] = (yearlyCombinedProfit[year] ?? 0.0) + (profit as num).toDouble() * (widget.usExchangeRate ?? 1.0) / 10000;
-      });
-    }
-    if (widget.krProfitData['yearly_total_profit'] != null) {
-      (widget.krProfitData['yearly_total_profit'] as Map<String, dynamic>).forEach((year, profit) {
-        yearlyCombinedProfit[year] = (yearlyCombinedProfit[year] ?? 0.0) + (profit as num).toDouble() / 10000;
-      });
-    }
     // Add current unrealized profit to the current year (2025) in the yearly table
     final String currentYear = DateTime.now().year.toString();
-    yearlyCombinedProfit[currentYear] = (yearlyCombinedProfit[currentYear] ?? 0.0) + displayTotalUnrealizedProfit / 10000;
-
-    List<String> sortedYears = yearlyCombinedProfit.keys.toList()..sort();
+    if (yearlyCombinedProfitRaw.containsKey(currentYear)) {
+      yearlyCombinedProfitRaw[currentYear] = (yearlyCombinedProfitRaw[currentYear] ?? 0.0) + displayTotalUnrealizedProfit;
+    } else {
+      yearlyCombinedProfitRaw[currentYear] = displayTotalUnrealizedProfit;
+    }
+    
+    List<String> sortedYears = yearlyCombinedProfitRaw.keys.toList()..sort();
 
     final List<ChartData> allStocksChartData = [];
 
@@ -118,6 +111,7 @@ class _HomeScreenState extends State<HomeScreen> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               const SizedBox(height: kToolbarHeight),
+              const SizedBox(height: 16.0), // Added to push the card down slightly
             // Total Realized Profit/Loss Section
             Card(
               elevation: 4,
@@ -171,7 +165,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                 cells: [
                                   const DataCell(Text('실현 손익 (만원)')),
                                   ...sortedYears.map((year) {
-                                    final double profit = yearlyCombinedProfit[year]!;
+                                    final double profit = yearlyCombinedProfitRaw[year]! / 10000; // Divide by 10000 for display
                                     final Color valueColor = profit >= 0 ? Colors.green.shade700 : Colors.red.shade700;
                                     return DataCell(Text(
                                       currencyFormatter.format(profit),

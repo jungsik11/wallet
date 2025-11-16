@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
+
 
 import 'package:http/http.dart' as http;
 import 'dart:convert';
@@ -47,12 +47,11 @@ class MyHomePage extends StatefulWidget {
 class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateMixin {
   late TabController _tabController;
   int _selectedIndex = 0; // Add this line
-  Map<String, dynamic>? _usProfitData;
+  Map<String, Map<String, dynamic>>? _usProfitData; // Map of year to profit data
   Map<String, dynamic>? _usBalanceData;
   double? _usExchangeRate;
-  Map<String, dynamic>? _krProfitData;
+  Map<String, Map<String, dynamic>>? _krProfitData; // Map of year to profit data
   Map<String, dynamic>? _krBalanceData;
-  double? _krExchangeRate;
   Map<String, dynamic>? _pensionBalanceData;
   bool _isLoading = true;
   String? _errorMessage;
@@ -85,27 +84,27 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
     });
 
     try {
-      // Fetch all data in parallel
+      // Fetch all data in parallel using the new aggregated endpoints
       final results = await Future.wait([
-        _apiService.fetchUsProfitData(),
-        _apiService.fetchUsBalanceData(),
-        _apiService.fetchKrProfitData(),
-        _apiService.fetchKrBalanceData(),
-        _apiService.fetchPensionBalanceData(),
+        _apiService.fetchAllProfitData('US'),
+        _apiService.fetchAllProfitData('KR'),
+        _apiService.fetchAllBalanceData(),
       ]);
 
-      // Log received data
-      
       // Process results
-      _usProfitData = results[0] as Map<String, dynamic>;
-      _usBalanceData = results[1] as Map<String, dynamic>;
-      _usExchangeRate = (_usBalanceData?['exchange_rate'] as num?)?.toDouble();
-
-      _krProfitData = results[2] as Map<String, dynamic>;
-      _krBalanceData = results[3] as Map<String, dynamic>;
-      _krExchangeRate = (_krBalanceData?['exchange_rate'] as num?)?.toDouble();
-
-      _pensionBalanceData = results[4] as Map<String, dynamic>;
+      _usProfitData = (results[0] as Map<String, dynamic>).map(
+        (key, value) => MapEntry(key, value as Map<String, dynamic>),
+      );
+      _krProfitData = (results[1] as Map<String, dynamic>).map(
+        (key, value) => MapEntry(key, value as Map<String, dynamic>),
+      );
+      
+      final allBalanceData = results[2] as Map<String, dynamic>;
+      _usBalanceData = allBalanceData['us_balance_data'] as Map<String, dynamic>;
+      _krBalanceData = allBalanceData['kr_balance_data'] as Map<String, dynamic>;
+      _pensionBalanceData = allBalanceData['pension_balance_data'] as Map<String, dynamic>;
+      
+      _usExchangeRate = (_usBalanceData!['exchange_rate'] as num?)?.toDouble();
 
       if (mounted) {
         setState(() {
@@ -113,7 +112,7 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
         });
       }
     } catch (e) {
-            if (mounted) {
+      if (mounted) {
         setState(() {
           _errorMessage = e.toString();
           _isLoading = false;
@@ -245,7 +244,7 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
   }
 
   Widget _buildProfitTab() {
-    if (_isLoading || _usProfitData == null || _usBalanceData == null || _krProfitData == null || _krBalanceData == null) {
+    if (_isLoading || _usProfitData == null || _usBalanceData == null || _krProfitData == null || _krBalanceData == null || _usExchangeRate == null) {
       return const Center(child: CircularProgressIndicator());
     }
 
@@ -259,7 +258,7 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
       krProfitData: _krProfitData!,
       krBalanceData: _krBalanceData!['stocks'] as List<dynamic>,
       usExchangeRate: _usExchangeRate!,
-      krExchangeRate: _krExchangeRate!,
+      krExchangeRate: null, // krExchangeRate is no longer needed
     );
   }
 }

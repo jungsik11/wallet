@@ -5,8 +5,15 @@ import 'package:intl/intl.dart';
 
 class RankingScreen extends StatefulWidget {
   final Function(String) onTickerSelected;
+  final String selectedRankingType; // New parameter
+  final Function(String) onRankingTypeChanged; // New parameter
 
-  const RankingScreen({Key? key, required this.onTickerSelected}) : super(key: key);
+  const RankingScreen({
+    Key? key,
+    required this.onTickerSelected,
+    required this.selectedRankingType, // Required
+    required this.onRankingTypeChanged, // Required
+  }) : super(key: key);
 
   @override
   _RankingScreenState createState() => _RankingScreenState();
@@ -16,6 +23,7 @@ class _RankingScreenState extends State<RankingScreen> with AutomaticKeepAliveCl
   List<dynamic> _rankingData = [];
   bool _isLoading = true;
   String? _error;
+  // _selectedRankingType is now managed by the parent widget
 
   final WalletApiService _apiService = WalletApiService();
   final NumberFormat _numberFormat = NumberFormat('#,###');
@@ -38,6 +46,18 @@ class _RankingScreenState extends State<RankingScreen> with AutomaticKeepAliveCl
     return formatter.format(value);
   }
 
+  String formatMarketCap(dynamic marketCap) {
+    if (marketCap == null) {
+      return 'N/A';
+    }
+    double? value = double.tryParse(marketCap.toString());
+    if (value == null) {
+      return 'N/A';
+    }
+    // Convert to billions and format
+    return '${_numberFormat.format(value / 1000000000)}B';
+  }
+
   @override
   bool get wantKeepAlive => true;
 
@@ -45,6 +65,14 @@ class _RankingScreenState extends State<RankingScreen> with AutomaticKeepAliveCl
   void initState() {
     super.initState();
     _fetchRankingData();
+  }
+
+  @override
+  void didUpdateWidget(covariant RankingScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.selectedRankingType != widget.selectedRankingType) {
+      _fetchRankingData();
+    }
   }
 
   Future<void> _fetchRankingData() async {
@@ -58,10 +86,20 @@ class _RankingScreenState extends State<RankingScreen> with AutomaticKeepAliveCl
     });
 
     try {
-      final rankingData = await _apiService.fetchRankingData();
+      List<dynamic> fetchedData;
+      if (widget.selectedRankingType == 'top_gainers') { // Use widget.selectedRankingType
+        fetchedData = await _apiService.fetchRankingData();
+      } else { // 'market_cap'
+        fetchedData = await _apiService.fetchUsMarketCapRanking();
+        // Directly use 'last' from the fetched data as 'price'
+        for (var stock in fetchedData) {
+          stock['price'] = stock['last']; // Assign 'last' to 'price'
+        }
+      }
+      
       if (mounted) {
         setState(() {
-          _rankingData = rankingData;
+          _rankingData = fetchedData;
         });
       }
     } catch (e) {
@@ -85,7 +123,13 @@ class _RankingScreenState extends State<RankingScreen> with AutomaticKeepAliveCl
     return Scaffold(
       body: RefreshIndicator(
         onRefresh: _fetchRankingData,
-        child: _buildBody(),
+        child: Column(
+          children: [
+            // Removed SizedBox(height: kToolbarHeight) from here
+            // Removed SegmentedButton from here
+            Expanded(child: _buildBody()),
+          ],
+        ),
       ),
     );
   }
@@ -119,80 +163,94 @@ class _RankingScreenState extends State<RankingScreen> with AutomaticKeepAliveCl
       );
     }
 
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      physics: const AlwaysScrollableScrollPhysics(),
-      child: Column(
-        children: [
-          const SizedBox(height: kToolbarHeight), // Add this line
-          DataTable(
-            columns: const [
-              DataColumn(label: Text('순위'), columnWidth: FixedColumnWidth(50)),
-              DataColumn(label: Text('티커')),
-              DataColumn(label: Text('종목명')),
-              DataColumn(label: Text('현재가'), columnWidth: FixedColumnWidth(120)),
-              DataColumn(label: Text('등락률')),
-              DataColumn(label: Text('거래량')),
-            ],
-            rows: _rankingData.asMap().entries.map((entry) {
-              int index = entry.key;
-              var stock = entry.value;
-              final ticker = stock['ticker'];
-              
-              // Safely parse values that might be String or num from the API
-              final double diff = double.tryParse(stock['diff']?.toString() ?? '') ?? 0.0;
+    return SingleChildScrollView( // Vertical scroll
+      child: SingleChildScrollView( // Horizontal scroll
+        scrollDirection: Axis.horizontal,
+        physics: const AlwaysScrollableScrollPhysics(),
+        child: DataTable(
+          columns: widget.selectedRankingType == 'top_gainers' // Use widget.selectedRankingType
+              ? const [
+                  DataColumn(label: Text('순위'), columnWidth: FixedColumnWidth(50)),
+                  DataColumn(label: Text('티커')),
+                  DataColumn(label: Text('종목명')),
+                  DataColumn(label: Text('현재가'), columnWidth: FixedColumnWidth(120)),
+                  DataColumn(label: Text('등락률')),
+                  DataColumn(label: Text('거래량')),
+                ]
+              : const [
+                  DataColumn(label: Text('티커')),
+                  DataColumn(label: Text('종목명')),
+                  DataColumn(label: Text('현재가')),
+                  DataColumn(label: Text('시가총액')),
+                ],
+          rows: _rankingData.asMap().entries.map((entry) {
+            int index = entry.key;
+            var stock = entry.value;
+                          final ticker = stock['symb'];            
+            if (widget.selectedRankingType == 'market_cap') {
+              print('DEBUG: Market Cap Stock Data: $stock');
+            }
+            
+            // Safely parse values that might be String or num from the API
+            final String price = formatPrice(stock['price']);
+
+            List<DataCell> cells = [
+              DataCell(
+                InkWell(
+                  onTap: () {
+                    if (ticker != null) {
+                      widget.onTickerSelected(ticker);
+                    }
+                  },
+                  child: Text(ticker ?? 'N/A'),
+                ),
+              ),
+              DataCell(
+                SizedBox(
+                  width: 100, // Adjust this width as needed
+                  child: Text(
+                    stock['name'] ?? 'N/A',
+                    maxLines: 2, // Allow text to wrap to 2 lines
+                    overflow: TextOverflow.ellipsis, // Show ellipsis if text overflows 2 lines
+                  ),
+                ),
+              ),
+              DataCell(
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(price),
+                    if (widget.selectedRankingType == 'top_gainers') // Use widget.selectedRankingType
+                      Text(
+                        '(${double.tryParse(stock['diff']?.toString() ?? '')?.toStringAsFixed(2) ?? '0.00'}) ',
+                        style: TextStyle(color: (double.tryParse(stock['diff']?.toString() ?? '') ?? 0.0) >= 0 ? Colors.green : Colors.red, fontSize: 12),
+                      ),
+                  ],
+                ),
+              ),
+            ];
+
+            if (widget.selectedRankingType == 'top_gainers') { // Use widget.selectedRankingType
               final double rate = double.tryParse(stock['rate']?.toString() ?? '') ?? 0.0;
               final int volume = int.tryParse(stock['volume']?.toString() ?? '') ?? 0;
-              final String price = formatPrice(stock['price']);
-
-              return DataRow(
-                cells: [
-                  DataCell(Text((index + 1).toString())),
-                  DataCell(
-                    InkWell(
-                      onTap: () {
-                        if (ticker != null) {
-                          widget.onTickerSelected(ticker);
-                        }
-                      },
-                      child: Text(ticker ?? 'N/A'),
-                    ),
+              cells.add(
+                DataCell(
+                  Text(
+                    '${rate.toStringAsFixed(2)}%',
+                    style: TextStyle(color: rate >= 0 ? Colors.green : Colors.red),
                   ),
-                  DataCell(
-                    SizedBox(
-                      width: 100, // Adjust this width as needed
-                      child: Text(
-                        stock['name'] ?? 'N/A',
-                        maxLines: 2, // Allow text to wrap to 2 lines
-                        overflow: TextOverflow.ellipsis, // Show ellipsis if text overflows 2 lines
-                      ),
-                    ),
-                  ),
-                  DataCell(
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text(price),
-                        Text(
-                          '(${diff.toStringAsFixed(2)}) ',
-                          style: TextStyle(color: diff >= 0 ? Colors.green : Colors.red, fontSize: 12),
-                        ),
-                      ],
-                    ),
-                  ),
-                  DataCell(
-                    Text(
-                      '${rate.toStringAsFixed(2)}%',
-                      style: TextStyle(color: rate >= 0 ? Colors.green : Colors.red),
-                    ),
-                  ),
-                  DataCell(Text(_numberFormat.format(volume))),
-                ],
+                ),
               );
-            }).toList(),
-          ),
-        ],
+              cells.add(DataCell(Text(_numberFormat.format(volume))));
+            } else { // 'market_cap'
+              final String marketCap = formatMarketCap(stock['market_cap']);
+              cells.add(DataCell(Text(marketCap)));
+            }
+
+            return DataRow(cells: cells);
+          }).toList(),
+        ),
       ),
     );
   }

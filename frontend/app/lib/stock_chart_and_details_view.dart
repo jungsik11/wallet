@@ -86,27 +86,35 @@ class _StockChartAndDetailsViewState extends State<StockChartAndDetailsView> {
 
   Future<void> _fetchStockData() async {
     if (_currentDisplayTicker.isEmpty) { // Use _currentDisplayTicker
-      setState(() {
-        _error = '티커가 제공되지 않았습니다.';
-        _stockDetail = null;
-        _chartData = [];
-      });
+      if (mounted) {
+        setState(() {
+          _error = '티커가 제공되지 않았습니다.';
+          _stockDetail = null;
+          _chartData = [];
+        });
+      }
       return;
     }
 
-    setState(() {
-      _isLoading = true;
-      _error = null;
-      _smaData = []; // Only clear SMA data, as it's always recalculated
-    });
+    if (mounted) {
+      setState(() {
+        _isLoading = true;
+        _error = null;
+        _smaData = []; // Only clear SMA data, as it's always recalculated
+      });
+    }
 
     try {
       final stockDetailData = await _apiService.fetchStockDetail(_currentDisplayTicker);
 
       if (stockDetailData.containsKey('error')) {
-        _showErrorSnackbar(stockDetailData['error']);
-        _currentDisplayTicker = _lastSuccessfulTicker;
-        _searchController.text = _lastSuccessfulTicker;
+        if (mounted) {
+          _showErrorSnackbar(stockDetailData['error']);
+          setState(() {
+            _currentDisplayTicker = _lastSuccessfulTicker;
+            _searchController.text = _lastSuccessfulTicker;
+          });
+        }
         return;
       }
 
@@ -135,25 +143,31 @@ class _StockChartAndDetailsViewState extends State<StockChartAndDetailsView> {
         }
       }
 
-      setState(() {
-        _stockDetail = stockDetailData;
-        _chartData = chartData;
-        _smaData = smaData;
-        if (_chartData.isEmpty) {
-          _error = '해당 기간에 대한 차트 데이터가 없습니다.';
-        }
-        _lastSuccessfulTicker = _currentDisplayTicker;
-      });
+      if (mounted) {
+        setState(() {
+          _stockDetail = stockDetailData;
+          _chartData = chartData;
+          _smaData = smaData;
+          if (_chartData.isEmpty) {
+            _error = '해당 기간에 대한 차트 데이터가 없습니다.';
+          }
+          _lastSuccessfulTicker = _currentDisplayTicker;
+        });
+      }
     } catch (e) {
-      setState(() {
+      if (mounted) {
         _showErrorSnackbar('데이터를 불러오는 데 실패했습니다: ${e.toString()}');
-        _currentDisplayTicker = _lastSuccessfulTicker;
-        _searchController.text = _lastSuccessfulTicker;
-      });
+        setState(() {
+          _currentDisplayTicker = _lastSuccessfulTicker;
+          _searchController.text = _lastSuccessfulTicker;
+        });
+      }
     } finally {
-      setState(() {
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 

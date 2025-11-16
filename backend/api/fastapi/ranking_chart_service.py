@@ -5,6 +5,7 @@ Service to fetch candlestick chart data for top-ranked stocks from the KIS API.
 import os
 import time
 from typing import Any, Dict, List
+import logging # Added logging import
 
 import requests
 from utils import call_mcp_tool, MCP_STOCK_SERVER_URL
@@ -30,6 +31,7 @@ async def _get_top_ranked_stocks() -> List[Dict[str, Any]]:
     unique_stocks_map: Dict[str, Dict[str, Any]] = {}
 
     for excd_val in ["NYS", "NAS", "AMS"]:
+        logging.warning(f"Fetching top stocks from exchange: {excd_val}")
         params = {
             "excd": excd_val,
             "nday": "0",  # Today
@@ -40,6 +42,7 @@ async def _get_top_ranked_stocks() -> List[Dict[str, Any]]:
         data = await call_mcp_tool(MCP_STOCK_SERVER_URL, "overseas_stock", "updown_rate", params)
 
         if data and data.get('output2'):
+            items_found_for_exchange = 0
             for item in data['output2']:
                 try:
                     ticker = item.get('symb', '')
@@ -54,9 +57,14 @@ async def _get_top_ranked_stocks() -> List[Dict[str, Any]]:
                             "rate": rate_val,
                             "volume": item.get('tvol', 0),
                         }
+                        items_found_for_exchange += 1
                 except (ValueError, TypeError):
+                    logging.warning(f"Skipping malformed item from {excd_val}: {item}")
                     continue # Skip if data is malformed
+            logging.warning(f"Found {items_found_for_exchange} items from {excd_val}. Current unique map size: {len(unique_stocks_map)}")
     
+    stock_summaries = [f"{s['ticker']} ({s['exch']})" for s in unique_stocks_map.values()]
+    logging.warning(f"Final unique stocks before sorting (tickers and exchanges): {stock_summaries}")
     all_stocks = list(unique_stocks_map.values())
     # Sort by rate of change in descending order and return
     return sorted(all_stocks, key=lambda x: x['rate'], reverse=True)[:top_n]

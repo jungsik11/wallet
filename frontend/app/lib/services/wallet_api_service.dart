@@ -3,51 +3,23 @@ import 'dart:convert';
 import 'package:app/constants/api_constants.dart';
 
 class WalletApiService {
-  Future<Map<String, dynamic>> fetchUsProfitData() async {
-    final response = await http.get(Uri.parse(ApiConstants.calculateProfitUs));
+  Future<Map<String, dynamic>> fetchAllProfitData(String country) async {
+    final response = await http.get(Uri.parse('${ApiConstants.baseUrl}/all_profit_data?country=$country'));
     if (response.statusCode == 200) {
       return jsonDecode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception('Failed to load US profit data: ${response.statusCode}');
+      throw Exception('Failed to load all profit data for $country: ${response.statusCode}');
     }
   }
 
-  Future<Map<String, dynamic>> fetchUsBalanceData() async {
-    final response = await http.get(Uri.parse(ApiConstants.accountBalanceUs));
+  Future<Map<String, dynamic>> fetchAllBalanceData() async {
+    final response = await http.get(Uri.parse('${ApiConstants.baseUrl}/all_balance_data'));
     if (response.statusCode == 200) {
       return jsonDecode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception('Failed to load US balance data: ${response.statusCode}');
+      throw Exception('Failed to load all balance data: ${response.statusCode}');
     }
   }
-
-  Future<Map<String, dynamic>> fetchKrProfitData() async {
-    final response = await http.get(Uri.parse(ApiConstants.calculateProfitKr));
-    if (response.statusCode == 200) {
-      return jsonDecode(utf8.decode(response.bodyBytes));
-    } else {
-      throw Exception('Failed to load KR profit data: ${response.statusCode}');
-    }
-  }
-
-  Future<Map<String, dynamic>> fetchKrBalanceData() async {
-    final response = await http.get(Uri.parse(ApiConstants.accountBalanceKr));
-    if (response.statusCode == 200) {
-      return jsonDecode(utf8.decode(response.bodyBytes));
-    } else {
-      throw Exception('Failed to load KR balance data: ${response.statusCode}');
-    }
-  }
-
-  Future<Map<String, dynamic>> fetchPensionBalanceData() async {
-    final response = await http.get(Uri.parse(ApiConstants.accountBalancePension));
-    if (response.statusCode == 200) {
-      return jsonDecode(utf8.decode(response.bodyBytes));
-    } else {
-      throw Exception('Failed to load Pension balance data: ${response.statusCode}');
-    }
-  }
-
 
   Future<Map<String, dynamic>> fetchOhlcvData(String ticker, String timeframe) async {
     await Future.delayed(const Duration(milliseconds: 200)); // Add delay
@@ -101,6 +73,15 @@ class WalletApiService {
       return jsonDecode(utf8.decode(response.bodyBytes));
     } else {
       throw Exception('Failed to load US market cap ranking: ${response.statusCode}');
+    }
+  }
+
+  Future<Map<String, dynamic>> fetchCurrentPrice(String ticker) async {
+    final response = await http.get(Uri.parse('${ApiConstants.baseUrl}/price/$ticker'));
+    if (response.statusCode == 200) {
+      return jsonDecode(utf8.decode(response.bodyBytes));
+    } else {
+      throw Exception('Failed to load current price for $ticker: ${response.statusCode}');
     }
   }
 }

@@ -33,50 +33,44 @@ class YearlyProfitScreen extends StatelessWidget {
         backgroundColor: theme.scaffoldBackgroundColor,
         elevation: 0,
       ),
-      body: ListView.builder(
-        itemCount: sortedYears.length,
-        itemBuilder: (context, index) {
-          final year = sortedYears[index];
-          final totalProfit = yearlyTotalProfit[year] ?? 0.0;
-          final totalProfitColor = totalProfit > 0 ? Colors.greenAccent[400] : (totalProfit < 0 ? Colors.redAccent[400] : Colors.grey);
-
-          // Find all stocks that had trades in this year
-          final stocksForYear = profitResponse.stocks.where((stockMap) {
-            return stockMap.values.first.yearlyProfit.containsKey(year);
-          }).toList();
-
-          return Card(
-            margin: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
-            elevation: 4,
-            child: ExpansionTile(
-              title: Text(
-                '$year 총 실현 손익',
-                style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+      body: SingleChildScrollView(
+        child: Padding(
+          padding: const EdgeInsets.all(8.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '연도별 총 실현 손익',
+                style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
               ),
-              subtitle: Text(
-                _formatCurrency(totalProfit),
-                style: TextStyle(color: totalProfitColor, fontWeight: FontWeight.bold),
+              const SizedBox(height: 16),
+              SingleChildScrollView( // For horizontal scrolling if table is too wide
+                scrollDirection: Axis.horizontal,
+                child: DataTable(
+                  headingTextStyle: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold, color: theme.colorScheme.onSurface),
+                  dataTextStyle: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurface),
+                  columns: const [
+                    DataColumn(label: Text('연도')),
+                    DataColumn(label: Text('총 실현 손익'), numeric: true),
+                  ],
+                  rows: sortedYears.map((year) {
+                    final totalProfit = yearlyTotalProfit[year] ?? 0.0;
+                    final totalProfitColor = totalProfit > 0 ? Colors.greenAccent[400] : (totalProfit < 0 ? Colors.redAccent[400] : Colors.grey);
+                    return DataRow(
+                      cells: [
+                        DataCell(Text(year)),
+                        DataCell(Text(
+                          _formatCurrency(totalProfit),
+                          style: TextStyle(color: totalProfitColor, fontWeight: FontWeight.bold),
+                        )),
+                      ],
+                    );
+                  }).toList(),
+                ),
               ),
-              children: stocksForYear.map((stockMap) {
-                final ticker = stockMap.keys.first;
-                final stockHolding = stockMap.values.first;
-                final profit = stockHolding.yearlyProfit[year] ?? 0.0;
-                final profitColor = profit > 0 ? Colors.greenAccent[400] : (profit < 0 ? Colors.redAccent[400] : Colors.grey);
-
-                return ListTile(
-                  title: Text(ticker, style: theme.textTheme.bodyLarge),
-                  trailing: Text(
-                    _formatCurrency(profit),
-                    style: TextStyle(
-                      color: profitColor,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                );
-              }).toList(),
-            ),
-          );
-        },
+            ],
+          ),
+        ),
       ),
     );
   }

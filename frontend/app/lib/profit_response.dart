@@ -5,7 +5,7 @@ class ProfitResponse {
   ProfitResponse({required this.yearlyTotalProfit, required this.stocks});
 
   factory ProfitResponse.fromJson(Map<String, dynamic> json) {
-    var stocksList = (json['stocks'] as List)
+    var stocksList = ((json['stocks'] as List?) ?? [])
         .map((item) {
           final entry = (item as Map<String, dynamic>).entries.first;
           return {
@@ -15,7 +15,7 @@ class ProfitResponse {
         .toList();
 
     return ProfitResponse(
-      yearlyTotalProfit: Map<String, double>.from(json['yearly_total_profit'].map((key, value) => MapEntry(key, (value as num).toDouble()))),
+      yearlyTotalProfit: Map<String, double>.from((json['yearly_total_profit'] as Map? ?? {}).map((key, value) => MapEntry(key, (value as num).toDouble()))),
       stocks: stocksList,
     );
   }
@@ -29,8 +29,8 @@ class StockHolding {
 
   factory StockHolding.fromJson(Map<String, dynamic> json) {
     return StockHolding(
-      yearlyProfit: Map<String, double>.from(json['yearly_profit'].map((key, value) => MapEntry(key, (value as num).toDouble()))),
-      holdings: Map<String, dynamic>.from(json['holdings']),
+      yearlyProfit: Map<String, double>.from((json['yearly_profit'] as Map? ?? {}).map((key, value) => MapEntry(key, (value as num).toDouble()))),
+      holdings: Map<String, dynamic>.from(json['holdings'] ?? {}),
     );
   }
 }

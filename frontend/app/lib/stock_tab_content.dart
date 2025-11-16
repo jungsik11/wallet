@@ -12,6 +12,8 @@ class StockTabContent extends StatefulWidget {
 
 class _StockTabContentState extends State<StockTabContent> with SingleTickerProviderStateMixin {
   late TabController _subTabController;
+  String _selectedRankingType = 'top_gainers'; // State for the SegmentedButton
+  int _selectedIndex = 0; // Track selected sub-tab index
 
   // For now, a fixed ticker for testing. This will eventually come from another screen.
   String _currentTicker = 'PLTR'; // Example ticker
@@ -20,6 +22,11 @@ class _StockTabContentState extends State<StockTabContent> with SingleTickerProv
   void initState() {
     super.initState();
     _subTabController = TabController(length: 3, vsync: this);
+    _subTabController.addListener(() {
+      setState(() {
+        _selectedIndex = _subTabController.index;
+      });
+    });
   }
 
   @override
@@ -33,6 +40,12 @@ class _StockTabContentState extends State<StockTabContent> with SingleTickerProv
       _currentTicker = ticker;
     });
     _subTabController.animateTo(0);
+  }
+
+  void _onRankingTypeChanged(String newType) {
+    setState(() {
+      _selectedRankingType = newType;
+    });
   }
 
   @override
@@ -57,7 +70,27 @@ class _StockTabContentState extends State<StockTabContent> with SingleTickerProv
             Tab(text: '현재가'),
           ],
         ),
-        const SizedBox(height: 16.0),
+        // SegmentedButton moved here, directly below the TabBar
+        if (_selectedIndex == 1) // Conditionally render only for "상승 종목" tab
+          Padding(
+            padding: const EdgeInsets.all(8.0),
+            child: SegmentedButton<String>(
+              segments: const <ButtonSegment<String>>[
+                ButtonSegment<String>(
+                  value: 'top_gainers',
+                  label: Text('등락률 상위'),
+                ),
+                ButtonSegment<String>(
+                  value: 'market_cap',
+                  label: Text('시가총액 상위'),
+                ),
+              ],
+              selected: <String>{_selectedRankingType},
+              onSelectionChanged: (Set<String> newSelection) {
+                _onRankingTypeChanged(newSelection.first);
+              },
+            ),
+          ),
         Expanded(
           child: TabBarView(
             controller: _subTabController,
@@ -65,9 +98,13 @@ class _StockTabContentState extends State<StockTabContent> with SingleTickerProv
               // Chart Tab Content
               StockChartAndDetailsView(ticker: _currentTicker), // Use StockChartAndDetailsView
               // Ranking Tab Content
-              RankingScreen(onTickerSelected: _onTickerSelected),
+              RankingScreen(
+                onTickerSelected: _onTickerSelected,
+                selectedRankingType: _selectedRankingType, // Pass the state
+                onRankingTypeChanged: _onRankingTypeChanged, // Pass the callback
+              ),
               // Current Price Tab Content
-              CurrentPriceScreen(onTickerSelected: _onTickerSelected),
+              CurrentPriceScreen(onTickerSelected: _onTickerSelected, ticker: _currentTicker),
             ],
           ),
         ),
