@@ -72,9 +72,8 @@ class _StockChartAndDetailsViewState extends State<StockChartAndDetailsView> {
   void didUpdateWidget(covariant StockChartAndDetailsView oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.ticker != oldWidget.ticker) {
-      _currentDisplayTicker = widget.ticker;
-      _searchController.text = widget.ticker;
-      _fetchStockData();
+      // Don't set state here, let _fetchStockData handle it atomically.
+      _fetchStockData(ticker: widget.ticker);
     }
   }
 
@@ -84,43 +83,36 @@ class _StockChartAndDetailsViewState extends State<StockChartAndDetailsView> {
     super.dispose();
   }
 
-  Future<void> _fetchStockData() async {
-    if (_currentDisplayTicker.isEmpty) { // Use _currentDisplayTicker
-      if (mounted) {
-        setState(() {
-          _error = '티커가 제공되지 않았습니다.';
-          _stockDetail = null;
-          _chartData = [];
-        });
-      }
+  Future<void> _fetchStockData({String? ticker}) async {
+    final bool isInitialLoad = _stockDetail == null;
+    final tickerToFetch = ticker ?? _currentDisplayTicker;
+
+    if (tickerToFetch.isEmpty) {
       return;
     }
 
-    if (mounted) {
+    if (isInitialLoad) {
       setState(() {
         _isLoading = true;
-        _error = null;
-        _smaData = []; // Only clear SMA data, as it's always recalculated
       });
     }
 
     try {
-      final stockDetailData = await _apiService.fetchStockDetail(_currentDisplayTicker);
+      final stockDetailData = await _apiService.fetchStockDetail(tickerToFetch);
 
-      if (stockDetailData.containsKey('error')) {
-        if (mounted) {
-          _showErrorSnackbar(stockDetailData['error']);
-          setState(() {
-            _currentDisplayTicker = _lastSuccessfulTicker;
-            _searchController.text = _lastSuccessfulTicker;
-          });
-        }
-        return;
+      if (stockDetailData.isEmpty || stockDetailData.containsKey('error') || stockDetailData['name'] == null) {
+        throw Exception('Stock not found or invalid data');
       }
-
-      final ohlcvData = await _apiService.fetchOhlcvData(_currentDisplayTicker, _selectedTimeframe);
+      
+      final ohlcvData = await _apiService.fetchOhlcvData(tickerToFetch, _selectedTimeframe);
 
       final List<dynamic> chartRawData = ohlcvData['data'];
+
+      // Also treat empty chart data as a failure case that should show a popup.
+      if (chartRawData.isEmpty) {
+        throw Exception('No chart data available');
+      }
+
       final chartData = chartRawData.map((item) => _ChartData(
         DateTime.parse(item['date']),
         item['open'],
@@ -130,7 +122,6 @@ class _StockChartAndDetailsViewState extends State<StockChartAndDetailsView> {
         item['volume'],
       )).toList();
 
-      // Calculate 5-period SMA
       List<_ChartData> smaData = [];
       if (chartData.length >= 5) {
         for (int i = 4; i < chartData.length; i++) {
@@ -143,27 +134,26 @@ class _StockChartAndDetailsViewState extends State<StockChartAndDetailsView> {
         }
       }
 
+      // Atomic state update on success
       if (mounted) {
         setState(() {
+          _currentDisplayTicker = tickerToFetch;
+          _searchController.text = tickerToFetch;
+          _lastSuccessfulTicker = tickerToFetch;
           _stockDetail = stockDetailData;
           _chartData = chartData;
           _smaData = smaData;
-          if (_chartData.isEmpty) {
-            _error = '해당 기간에 대한 차트 데이터가 없습니다.';
-          }
-          _lastSuccessfulTicker = _currentDisplayTicker;
+          _error = null; // Explicitly clear any previous errors
         });
       }
     } catch (e) {
       if (mounted) {
-        _showErrorSnackbar('데이터를 불러오는 데 실패했습니다: ${e.toString()}');
-        setState(() {
-          _currentDisplayTicker = _lastSuccessfulTicker;
-          _searchController.text = _lastSuccessfulTicker;
-        });
+        _showNoDataDialog();
+        // On failure, revert the search box text to the last successful ticker.
+        _searchController.text = _lastSuccessfulTicker;
       }
     } finally {
-      if (mounted) {
+      if (mounted && isInitialLoad) {
         setState(() {
           _isLoading = false;
         });
@@ -190,18 +180,26 @@ class _StockChartAndDetailsViewState extends State<StockChartAndDetailsView> {
 
     Widget body;
 
-    if (_isLoading) {
+    // Show loading spinner ONLY if there's no data to display yet (initial load).
+    if (_isLoading && _stockDetail == null) {
       body = const Center(child: CircularProgressIndicator());
-    } else if (_error != null) {
+    }
+    // Show error message ONLY if there is no chart data to display.
+    else if (_error != null && _chartData.isEmpty) {
       body = Center(child: Text(_error!, style: const TextStyle(color: Colors.red)));
-    } else if (_stockDetail == null) {
+    }
+    // Show initial message if no detail is available after loading.
+    else if (_stockDetail == null) {
       body = Center(
         child: Text(
           '종목 정보를 불러올 수 없습니다.',
           style: Theme.of(context).textTheme.headlineSmall,
         ),
       );
-    } else {
+    }
+    // Otherwise, always build the main content. This prevents the screen from
+    // being replaced by a spinner during a refresh or a failed search.
+    else {
       final price = _stockDetail!['price'] ?? 0;
       final diff = _stockDetail!['diff'] ?? 0;
       final rate = _stockDetail!['rate'] ?? 0;
@@ -248,20 +246,21 @@ class _StockChartAndDetailsViewState extends State<StockChartAndDetailsView> {
                           suffixIcon: IconButton(
                             icon: const Icon(Icons.search),
                             onPressed: () {
-                              setState(() {
-                                _currentDisplayTicker = _searchController.text.toUpperCase();
-                              });
-                              _fetchStockData();
+                              final tickerToSearch = _searchController.text.toUpperCase();
+                              // Only search if the ticker is different from the current one.
+                              if (tickerToSearch.isNotEmpty && tickerToSearch != _currentDisplayTicker) {
+                                _fetchStockData(ticker: tickerToSearch);
+                              }
                             },
                           ),
                           border: const OutlineInputBorder(),
                           contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
                         ),
                         onSubmitted: (value) {
-                          setState(() {
-                            _currentDisplayTicker = value.toUpperCase();
-                          });
-                          _fetchStockData();
+                          final tickerToSearch = value.toUpperCase();
+                          if (tickerToSearch.isNotEmpty && tickerToSearch != _currentDisplayTicker) {
+                            _fetchStockData(ticker: tickerToSearch);
+                          }
                         },
                       ),
                     ),
@@ -466,6 +465,27 @@ class _StockChartAndDetailsViewState extends State<StockChartAndDetailsView> {
           style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
         ),
       ],
+    );
+  }
+
+  void _showNoDataDialog() {
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('알림'),
+          content: const Text('데이터가 없습니다.'),
+          actions: <Widget>[
+            TextButton(
+              child: const Text('확인'),
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+            ),
+          ],
+        );
+      },
     );
   }
 
