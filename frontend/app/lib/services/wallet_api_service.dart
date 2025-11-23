@@ -23,7 +23,7 @@ class WalletApiService {
 
   Future<Map<String, dynamic>> fetchOhlcvData(String ticker, String timeframe) async {
     await Future.delayed(const Duration(milliseconds: 200)); // Add delay
-    final response = await http.get(Uri.parse('${ApiConstants.baseUrl}/ohlcv?ticker=$ticker&timeframe=$timeframe'));
+    final response = await http.get(Uri.parse('${ApiConstants.baseUrl}/ohlcv/$timeframe?ticker=$ticker'));
     if (response.statusCode == 200) {
       return jsonDecode(utf8.decode(response.bodyBytes));
     } else {

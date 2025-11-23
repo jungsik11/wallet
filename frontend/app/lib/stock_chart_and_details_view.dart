@@ -1,9 +1,31 @@
 import 'package:flutter/material.dart';
 import 'package:app/services/wallet_api_service.dart';
 import 'package:intl/intl.dart';
-import 'package:syncfusion_flutter_charts/charts.dart';
+import 'package:interactive_chart/interactive_chart.dart';
 import 'dart:math';
 
+// Adjusted _ChartData to be compatible with interactive_chart's CandleData
+class _ChartData extends CandleData {
+  _ChartData({
+    required DateTime timestamp,
+    required double open,
+    required double high,
+    required double low,
+    required double close,
+    required double volume,
+    List<double>? trends, // Trends property for overlays like SMA
+  }) : super(
+          timestamp: timestamp.millisecondsSinceEpoch, // Convert DateTime to int millisecondsSinceEpoch
+          open: open,
+          high: high,
+          low: low,
+          close: close,
+          volume: volume,
+          trends: trends, // Pass trends to super constructor
+        );
+}
+
+// THE MISSING WIDGET CLASS - RE-ADDED
 class StockChartAndDetailsView extends StatefulWidget {
   final String ticker;
 
@@ -13,28 +35,15 @@ class StockChartAndDetailsView extends StatefulWidget {
   _StockChartAndDetailsViewState createState() => _StockChartAndDetailsViewState();
 }
 
-class _ChartData {
-  _ChartData(this.x, this.open, this.high, this.low, this.close, this.volume, [this.sma5]);
-  final DateTime x;
-  final num open;
-  final num high;
-  final num low;
-  final num close;
-  final num volume;
-  final double? sma5;
-
-
-}
 
 class _StockChartAndDetailsViewState extends State<StockChartAndDetailsView> {
   Map<String, dynamic>? _stockDetail;
   List<_ChartData> _chartData = [];
-  List<_ChartData> _smaData = [];
   bool _isLoading = false;
   String? _error;
-  String _selectedTimeframe = 'D';
-  List<bool> _isSelected = [false, true, false]; // M, D, Y
-  CrosshairBehavior? _crosshairBehavior;
+  String _selectedTimeframe = 'T';
+  List<bool> _isSelected = [true, false, false, false, false]; // T, D, W, M, Y
+  
   late TextEditingController _searchController;
   String _currentDisplayTicker = '';
   String _lastSuccessfulTicker = '';
@@ -56,15 +65,9 @@ class _StockChartAndDetailsViewState extends State<StockChartAndDetailsView> {
   @override
   void initState() {
     super.initState();
-    _crosshairBehavior = CrosshairBehavior(
-      enable: true,
-      activationMode: ActivationMode.singleTap,
-      lineType: CrosshairLineType.vertical,
-      lineDashArray: const <double>[5, 5],
-    );
     _searchController = TextEditingController(text: widget.ticker);
     _currentDisplayTicker = widget.ticker;
-    _lastSuccessfulTicker = widget.ticker; // Initialize last successful ticker
+    _lastSuccessfulTicker = widget.ticker;
     _fetchStockData();
   }
 
@@ -72,7 +75,6 @@ class _StockChartAndDetailsViewState extends State<StockChartAndDetailsView> {
   void didUpdateWidget(covariant StockChartAndDetailsView oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.ticker != oldWidget.ticker) {
-      // Don't set state here, let _fetchStockData handle it atomically.
       _fetchStockData(ticker: widget.ticker);
     }
   }
@@ -91,69 +93,86 @@ class _StockChartAndDetailsViewState extends State<StockChartAndDetailsView> {
       return;
     }
 
-    if (isInitialLoad) {
-      setState(() {
-        _isLoading = true;
-      });
-    }
+    setState(() {
+      _isLoading = true;
+      _stockDetail = null; // Clear previous stock details
+      _chartData = [];      // Clear previous chart data
+      _error = null;        // Clear previous error
+    });
 
     try {
       final stockDetailData = await _apiService.fetchStockDetail(tickerToFetch);
 
       if (stockDetailData.isEmpty || stockDetailData.containsKey('error') || stockDetailData['name'] == null) {
-        throw Exception('Stock not found or invalid data');
+        if (mounted) {
+          setState(() {
+            _error = '종목을 찾을 수 없거나 데이터가 유효하지 않습니다.';
+          });
+          _showErrorSnackbar(_error!);
+        }
+        return; // Return early if stock detail is invalid
       }
       
       final ohlcvData = await _apiService.fetchOhlcvData(tickerToFetch, _selectedTimeframe);
 
       final List<dynamic> chartRawData = ohlcvData['data'];
 
-      // Also treat empty chart data as a failure case that should show a popup.
       if (chartRawData.isEmpty) {
-        throw Exception('No chart data available');
-      }
-
-      final chartData = chartRawData.map((item) => _ChartData(
-        DateTime.parse(item['date']),
-        item['open'],
-        item['high'],
-        item['low'],
-        item['close'],
-        item['volume'],
-      )).toList();
-
-      List<_ChartData> smaData = [];
-      if (chartData.length >= 5) {
-        for (int i = 4; i < chartData.length; i++) {
-          double sum = 0;
-          for (int j = 0; j < 5; j++) {
-            sum += chartData[i - j].close;
-          }
-          double sma = sum / 5;
-          smaData.add(_ChartData(chartData[i].x, 0, 0, 0, 0, 0, sma));
+        if (mounted) {
+          setState(() {
+            _error = '차트 데이터를 불러올 수 없습니다.';
+          });
+          _showErrorSnackbar(_error!);
         }
+        return; // Return early if no chart data
       }
 
-      // Atomic state update on success
+      final List<_ChartData> fetchedChartData = chartRawData.map((item) {
+        return _ChartData(
+          timestamp: DateTime.parse(item['date']),
+          open: item['open']?.toDouble() ?? 0.0,
+          high: item['high']?.toDouble() ?? 0.0,
+          low: item['low']?.toDouble() ?? 0.0,
+          close: item['close']?.toDouble() ?? 0.0,
+          volume: item['volume']?.toDouble() ?? 0.0,
+        );
+      }).toList();
+
+      // InteractiveChart expects candles in chronological order (oldest first)
+      // The API now returns oldest first, so no need to reverse.
+      final List<_ChartData> chronologicalChartData = fetchedChartData;
+
+      // Calculate SMA (Simple Moving Average) and assign to CandleData.trends
+      final ma5 = CandleData.computeMA(chronologicalChartData, 5);
+
+      for (int i = 0; i < chronologicalChartData.length; i++) {
+        // Assign SMA as the first trend line (index 0)
+        // Ensure trends list is initialized if null
+        chronologicalChartData[i].trends = [ma5[i]];
+      }
+
       if (mounted) {
         setState(() {
           _currentDisplayTicker = tickerToFetch;
           _searchController.text = tickerToFetch;
           _lastSuccessfulTicker = tickerToFetch;
           _stockDetail = stockDetailData;
-          _chartData = chartData;
-          _smaData = smaData;
-          _error = null; // Explicitly clear any previous errors
+          _chartData = chronologicalChartData;
+          _error = null; // Clear error if data loaded successfully
         });
       }
     } catch (e) {
       if (mounted) {
-        _showNoDataDialog();
-        // On failure, revert the search box text to the last successful ticker.
-        _searchController.text = _lastSuccessfulTicker;
+        setState(() {
+          _stockDetail = null;
+          _chartData = [];
+          _error = '데이터를 불러오는 중 오류가 발생했습니다: $e';
+        });
+        _showErrorSnackbar(_error!);
+        _searchController.text = _lastSuccessfulTicker; // Revert to last successful ticker on error
       }
     } finally {
-      if (mounted && isInitialLoad) {
+      if (mounted) { // Always set _isLoading to false
         setState(() {
           _isLoading = false;
         });
@@ -161,17 +180,33 @@ class _StockChartAndDetailsViewState extends State<StockChartAndDetailsView> {
     }
   }
 
-  DateFormat _getDateFormat() {
-    switch (_selectedTimeframe) {
-      case 'M':
-        return DateFormat('HH:mm');
-      case 'D':
-        return DateFormat('yy/MM/dd');
-      case 'Y':
-        return DateFormat('yyyy');
-      default:
-        return DateFormat('yy/MM/dd');
+  String _getBottomLabelText(int index, int totalVisibleCandles) {
+    if (index < 0 || index >= _chartData.length) {
+      return '';
     }
+
+    // Determine how many labels to display. Let's aim for a few, like 3 to 5 labels plus the first and last.
+    int desiredLabels = 5; // A reasonable number of labels to aim for
+    int actualLabels = min(desiredLabels, totalVisibleCandles);
+
+    // Calculate an interval. Ensure it's at least 1 to avoid division by zero or errors.
+    int interval = (totalVisibleCandles <= desiredLabels) ? 1 : (totalVisibleCandles / (desiredLabels - 1)).ceil();
+    if (interval == 0) interval = 1;
+
+
+    // Always display the first and last label. Display intermediate labels at calculated intervals.
+    if (index == 0 || index == _chartData.length - 1 || (index % interval == 0 && totalVisibleCandles > desiredLabels)) {
+      final DateTime timestamp = DateTime.fromMillisecondsSinceEpoch(_chartData[index].timestamp);
+      switch (_selectedTimeframe) {
+        case 'T': return DateFormat('HH:mm').format(timestamp);
+        case 'D': case 'W': return DateFormat('MM/dd').format(timestamp);
+        case 'M': return DateFormat('yy/MM').format(timestamp);
+        case 'Y': return DateFormat('yyyy').format(timestamp);
+        default: return DateFormat('MM/dd').format(timestamp);
+      }
+    }
+
+    return ''; // For other indices, return empty string
   }
 
   @override
@@ -180,16 +215,13 @@ class _StockChartAndDetailsViewState extends State<StockChartAndDetailsView> {
 
     Widget body;
 
-    // Show loading spinner ONLY if there's no data to display yet (initial load).
     if (_isLoading && _stockDetail == null) {
       body = const Center(child: CircularProgressIndicator());
     }
-    // Show error message ONLY if there is no chart data to display.
-    else if (_error != null && _chartData.isEmpty) {
+    else if (_error != null) { // Prioritize displaying specific error messages
       body = Center(child: Text(_error!, style: const TextStyle(color: Colors.red)));
     }
-    // Show initial message if no detail is available after loading.
-    else if (_stockDetail == null) {
+    else if (_stockDetail == null) { // This case should ideally be covered by _error now, but kept for robustness
       body = Center(
         child: Text(
           '종목 정보를 불러올 수 없습니다.',
@@ -197,19 +229,17 @@ class _StockChartAndDetailsViewState extends State<StockChartAndDetailsView> {
         ),
       );
     }
-    // Otherwise, always build the main content. This prevents the screen from
-    // being replaced by a spinner during a refresh or a failed search.
     else {
-      final price = _stockDetail!['price'] ?? 0;
-      final diff = _stockDetail!['diff'] ?? 0;
-      final rate = _stockDetail!['rate'] ?? 0;
-      final volume = _stockDetail!['volume'] ?? 'N/A';
-      final open = _stockDetail!['open'] ?? 0;
-      final high = _stockDetail!['high'] ?? 0;
-      final low = _stockDetail!['low'] ?? 0;
+      final price = _stockDetail?['price'] ?? 0.0; // Use 0.0 for numeric defaults
+      final diff = _stockDetail?['diff'] ?? 0.0;
+      final rate = _stockDetail?['rate'] ?? 0.0;
+      final volume = _stockDetail?['volume'] ?? 0; // Use 0 for numeric defaults
+      final open = _stockDetail?['open'] ?? 0.0;
+      final high = _stockDetail?['high'] ?? 0.0;
+      final low = _stockDetail?['low'] ?? 0.0;
 
       final isKrw = RegExp(r'^\d{6}$').hasMatch(_currentDisplayTicker);
-      final priceColor = diff > 0 ? Colors.red : (diff < 0 ? Colors.blue : Colors.grey);
+      final priceColor = diff > 0 ? Colors.green : (diff < 0 ? Colors.red : Colors.grey);
 
       body = SingleChildScrollView(
         child: Padding(
@@ -217,7 +247,6 @@ class _StockChartAndDetailsViewState extends State<StockChartAndDetailsView> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Header with Search Bar
               Row(
                 children: [
                   Expanded(
@@ -225,20 +254,20 @@ class _StockChartAndDetailsViewState extends State<StockChartAndDetailsView> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          _stockDetail!['name'] ?? 'N/A',
+                          _stockDetail?['name'] ?? 'N/A', // Null-safe access
                           style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
                         ),
                         Text(
-                          _currentDisplayTicker, // Display the current ticker
+                          _currentDisplayTicker,
                           style: theme.textTheme.titleMedium?.copyWith(color: Colors.grey[600]),
                         ),
                       ],
                     ),
                   ),
-                  Padding( // Added Padding
-                    padding: const EdgeInsets.only(right: 16.0), // Added right padding
+                  Padding(
+                    padding: const EdgeInsets.only(right: 16.0),
                     child: SizedBox(
-                      width: 150, // Adjust width as needed
+                      width: 150,
                       child: TextField(
                         controller: _searchController,
                         decoration: InputDecoration(
@@ -247,7 +276,6 @@ class _StockChartAndDetailsViewState extends State<StockChartAndDetailsView> {
                             icon: const Icon(Icons.search),
                             onPressed: () {
                               final tickerToSearch = _searchController.text.toUpperCase();
-                              // Only search if the ticker is different from the current one.
                               if (tickerToSearch.isNotEmpty && tickerToSearch != _currentDisplayTicker) {
                                 _fetchStockData(ticker: tickerToSearch);
                               }
@@ -270,9 +298,8 @@ class _StockChartAndDetailsViewState extends State<StockChartAndDetailsView> {
               const SizedBox(height: 16),
 
               Row(
-                crossAxisAlignment: CrossAxisAlignment.start, // Align items to the start (top)
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Left Section: Price Info
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -309,11 +336,10 @@ class _StockChartAndDetailsViewState extends State<StockChartAndDetailsView> {
                     ),
                   ),
 
-                  // Right Section: Open, High, Low, Volume Info
-                  Padding( // Added Padding
-                    padding: const EdgeInsets.only(right: 16.0), // Added right padding
+                  Padding(
+                    padding: const EdgeInsets.only(right: 16.0),
                     child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start, // Changed from CrossAxisAlignment.end to CrossAxisAlignment.start
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Row(
                           mainAxisSize: MainAxisSize.min,
@@ -339,7 +365,6 @@ class _StockChartAndDetailsViewState extends State<StockChartAndDetailsView> {
               ),
               const SizedBox(height: 24),
 
-              // Timeframe ToggleButtons
               Center(
                 child: ToggleButtons(
                   isSelected: _isSelected,
@@ -348,7 +373,7 @@ class _StockChartAndDetailsViewState extends State<StockChartAndDetailsView> {
                       for (int i = 0; i < _isSelected.length; i++) {
                         _isSelected[i] = i == index;
                       }
-                      _selectedTimeframe = ['M', 'D', 'Y'][index]; // Changed 'W' back to 'H'
+                      _selectedTimeframe = ['T', 'D', 'W', 'M', 'Y'][index];
                       _fetchStockData();
                     });
                   },
@@ -359,86 +384,40 @@ class _StockChartAndDetailsViewState extends State<StockChartAndDetailsView> {
                   selectedBorderColor: theme.colorScheme.primary,
                   borderRadius: BorderRadius.circular(8),
                   constraints: const BoxConstraints(minHeight: 36.0),
-                  children: <Widget>[
-                    Padding(padding: const EdgeInsets.symmetric(horizontal: 16.0), child: Text('1분')),
-                    Padding(padding: const EdgeInsets.symmetric(horizontal: 16.0), child: Text('1일')),
-                    Padding(padding: const EdgeInsets.symmetric(horizontal: 16.0), child: Text('1년')),
+                  children: const <Widget>[
+                    Padding(padding: EdgeInsets.symmetric(horizontal: 16.0), child: Text('1분')),
+                    Padding(padding: EdgeInsets.symmetric(horizontal: 16.0), child: Text('1일')),
+                    Padding(padding: EdgeInsets.symmetric(horizontal: 16.0), child: Text('1주')),
+                    Padding(padding: EdgeInsets.symmetric(horizontal: 16.0), child: Text('1달')),
+                    Padding(padding: EdgeInsets.symmetric(horizontal: 16.0), child: Text('1년')),
                   ],
                 ),
               ),
               const SizedBox(height: 16),
 
-              // Candlestick Chart
               SizedBox(
-                height: 250, // Reduced height
+                height: 330,
                 child: _chartData.isEmpty
                     ? Center(child: Text('차트 데이터가 없습니다.', style: TextStyle(color: theme.colorScheme.onSurface.withOpacity(0.7))))
-                    : SfCartesianChart(
-                        crosshairBehavior: _crosshairBehavior,
-                        primaryXAxis: DateTimeAxis(
-                          isVisible: true, // Show X axis for the main chart
-                          dateFormat: _getDateFormat(),
-                          majorGridLines: const MajorGridLines(width: 0),
-                          labelStyle: TextStyle(color: theme.colorScheme.onSurface.withOpacity(0.7), fontSize: 10), // Add labelStyle
+                    : InteractiveChart(
+                        candles: _chartData,
+                        style: ChartStyle(
+                          priceGainColor: Colors.green,
+                          priceLossColor: Colors.red,
+                          volumeColor: Colors.grey.withOpacity(0.5),
+                          volumeHeightFactor: 0.2,
+                          overlayBackgroundColor: Colors.black.withOpacity(0.5),
+                          timeLabelStyle: TextStyle(color: theme.colorScheme.onSurface.withOpacity(0.7), fontSize: 10),
+                          priceLabelStyle: TextStyle(color: theme.colorScheme.onSurface.withOpacity(0.7), fontSize: 10),
+                          trendLineStyles: [
+                              Paint()
+                                ..strokeWidth = 1.5
+                                ..strokeCap = StrokeCap.round
+                                ..color = Colors.orange,
+                          ]
                         ),
-                        primaryYAxis: NumericAxis(
-                          opposedPosition: true,
-                          numberFormat: isKrw ? NumberFormat.compact() : NumberFormat.compactSimpleCurrency(),
-                          labelStyle: TextStyle(color: theme.colorScheme.onSurface.withOpacity(0.7), fontSize: 10),
-                        ),
-                        series: <CartesianSeries>[
-                          CandleSeries<_ChartData, DateTime>(
-                            dataSource: _chartData,
-                            xValueMapper: (_ChartData data, _) => data.x,
-                            lowValueMapper: (_ChartData data, _) => data.low,
-                            highValueMapper: (_ChartData data, _) => data.high,
-                            openValueMapper: (_ChartData data, _) => data.open,
-                            closeValueMapper: (_ChartData data, _) => data.close,
-                            bullColor: Colors.red,
-                            bearColor: Colors.blue,
-                            name: widget.ticker,
-                          ),
-                          LineSeries<_ChartData, DateTime>(
-                            dataSource: _smaData,
-                            xValueMapper: (_ChartData data, _) => data.x,
-                            yValueMapper: (_ChartData data, _) => data.sma5,
-                            color: Colors.orange,
-                            width: 1,
-                            name: 'SMA 5',
-                          ),
-                        ],
-                      ),
-              ),
-              // Volume Chart
-              SizedBox(
-                height: 80, // Reduced height
-                child: _chartData.isEmpty
-                    ? const SizedBox.shrink()
-                    : SfCartesianChart(
-                        primaryXAxis: DateTimeAxis(
-                          dateFormat: _getDateFormat(),
-                          majorGridLines: const MajorGridLines(width: 0),
-                          labelStyle: TextStyle(color: theme.colorScheme.onSurface.withOpacity(0.7), fontSize: 10),
-                        ),
-                        primaryYAxis: NumericAxis(
-                          isVisible: true, // Show Y axis for volume chart
-                          numberFormat: NumberFormat.compact(),
-                          axisLabelFormatter: (AxisLabelRenderDetails details) {
-                            final value = details.value;
-                            return ChartAxisLabel('${NumberFormat.compact().format(value)}주',
-                                TextStyle(color: theme.colorScheme.onSurface.withOpacity(0.7), fontSize: 10));
-                          },
-                          labelStyle: TextStyle(color: theme.colorScheme.onSurface.withOpacity(0.7), fontSize: 10),
-                        ),
-                        series: <CartesianSeries>[
-                          ColumnSeries<_ChartData, DateTime>(
-                            dataSource: _chartData,
-                            xValueMapper: (_ChartData data, _) => data.x,
-                            yValueMapper: (_ChartData data, _) => data.volume,
-                            name: 'Volume',
-                            color: Colors.grey.withOpacity(0.5),
-                          ),
-                        ],
+                        timeLabel: _getBottomLabelText,
+                        // overlays parameter is not used as trends are assigned to CandleData
                       ),
               ),
             ],

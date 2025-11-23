@@ -144,8 +144,8 @@ async def get_account_balance(country: str = Query(None, description="Country co
         logging.info(f"DEBUG: Calling MCP tool for KR account balance with api_type='domestic_stock', specific_api_type='inquire_balance', params={params}")
         data = await call_mcp_tool(MCP_STOCK_SERVER_URL, "domestic_stock", "inquire_balance", params)
         logging.info(f"DEBUG: Raw data received from MCP tool for KR account balance: {data}")
-        stocks = data.get("output1", [])
-        summary = data.get("output2", [{}])[0]
+        stocks = data[0].get("output1", [])
+        summary = data[0].get("output2", [{}])[0]
 
         return {
             "cash": {"krw": safe_int(summary.get("dnca_tot_amt"))},
@@ -169,8 +169,8 @@ async def get_account_balance(country: str = Query(None, description="Country co
         data = await call_mcp_tool(MCP_STOCK_SERVER_URL, "overseas_stock", "inquire_present_balance", params)
         logging.info(f"DEBUG: Raw data received from MCP tool for US account balance: {data}")
         
-        stocks = data.get("output1", [])
-        summary_output2 = data.get("output2", [{}])[0]
+        stocks = data[0].get("output1", [])
+        summary_output2 = data[0].get("output2", [{}])[0]
 
         return {
             "cash": {"usd": safe_float(summary_output2.get("frcr_dncl_amt_2"))},
@@ -215,8 +215,8 @@ async def calculate_profit(country: str = Query(..., description="Country code (
         }
         us_data = await call_mcp_tool(MCP_STOCK_SERVER_URL, "overseas_stock", "inquire_period_profit", us_params)
 
-        us_stocks_profit_data = us_data.get("output1", [])
-        us_overall_profit_summary = us_data.get("output2", [{}])[0]
+        us_stocks_profit_data = us_data[0].get("output1", [])
+        us_overall_profit_summary = us_data[0].get("output2", [{}])[0]
 
         total_usd_profit_for_year = safe_float(us_overall_profit_summary.get("ovrs_rlzt_pfls_tot_amt"))
         
@@ -264,8 +264,8 @@ async def calculate_profit(country: str = Query(..., description="Country code (
             MCP_STOCK_SERVER_URL, "domestic_stock", "inquire_period_trade_profit", kr_all_trades_params
         )
         
-        kr_stocks_with_trades = kr_all_trades_data.get("output1", [])
-        kr_overall_summary = kr_all_trades_data.get("output2", [{}])[0]
+        kr_stocks_with_trades = kr_all_trades_data[0].get("output1", [])
+        kr_overall_summary = kr_all_trades_data[0].get("output2", [{}])[0]
         
         total_krw_profit_for_year = safe_float(kr_overall_summary.get("tot_rlzt_pfls", kr_overall_summary.get("rlzt_pfls_amt")))
         
@@ -316,102 +316,284 @@ async def get_account_balance_pension():
             "fund_sttl_icld_yn": "N", "fncg_amt_auto_rdpt_yn": "N", "prcs_dvsn": "00"
         }
     data = await call_mcp_tool(MCP_PENSION_SERVER_URL, "domestic_stock", "inquire_balance", params)
-    stocks = data.get("output1", [])
-    summary = data.get("output2", [{}])[0]
-
+    stocks = data[0].get("output1", [])
+    summary = data[0].get("output2", [{}])[0]
+    
     return {
-        "cash": {"krw": safe_int(summary.get("dnca_tot_amt"))},
-        "stocks": [
-            {
-                "name": s.get("prdt_name"), "ticker": s.get("pdno"), "quantity": safe_int(s.get("hldg_qty")),
-                "profit_loss_ratio": safe_float(s.get("evlu_pfls_rt")), "market": "KRX",
-                "average_price": safe_float(s.get("pchs_avg_pric")), "current_price": safe_float(s.get("prpr")),
-                "valuation": safe_int(s.get("evlu_amt")), "profit_loss": safe_int(s.get("evlu_pfls_amt")), "currency": "KRW"
-            } for s in stocks
-        ]
+    "cash": {"krw": safe_int(summary.get("dnca_tot_amt"))},
+    "stocks": [
+        {
+            "name": s.get("prdt_name"), "ticker": s.get("pdno"), "quantity": safe_int(s.get("hldg_qty")),
+            "profit_loss_ratio": safe_float(s.get("evlu_pfls_rt")), "market": "KRX",
+            "average_price": safe_float(s.get("pchs_avg_pric")), "current_price": safe_float(s.get("prpr")),
+            "valuation": safe_int(s.get("evlu_amt")), "profit_loss": safe_int(s.get("evlu_pfls_amt")), "currency": "KRW"
+        } for s in stocks
+    ]
     }
 
-@app.get("/ohlcv")
-async def get_ohlcv(ticker: str, timeframe: str = Query('D', description="Timeframe: 'Y' (yearly), 'D' (daily), 'W' (weekly), 'M' (monthly)")):
+
+
+@app.get("/ohlcv/{timeframe}")
+async def get_ohlcv_by_timeframe(ticker: str, timeframe: str):
     today = datetime.now()
-    # Fetch data for the last year for simplicity
-    start_date = today - timedelta(days=365)
-    inqr_strt_dt = start_date.strftime("%Y%m%d")
+    
+    # Determine date range based on timeframe
+    inqr_strt_dt = ""
     inqr_end_dt = today.strftime("%Y%m%d")
 
-    period_map = {
-        'Y': 'Y',
-        'M': 'M',
-        'W': 'W',
-        'D': 'D'
-    }
-    fid_period_div_code = period_map.get(timeframe.upper(), 'D')
+    if timeframe == 'Y':
+        start_date = datetime(today.year - 20, 1, 1) # Go back 20 years for yearly
+        inqr_strt_dt = start_date.strftime("%Y%m%d")
+    elif timeframe == 'M':
+        start_date = today - timedelta(days=365 * 5) # Go back 5 years for monthly
+        inqr_strt_dt = start_date.strftime("%Y%m%d")
+    elif timeframe == 'W':
+        start_date = today - timedelta(days=365 * 2) # Go back 2 years for weekly
+        inqr_strt_dt = start_date.strftime("%Y%m%d")
+    elif timeframe == 'D':
+        start_date = today - timedelta(days=365) # Go back 1 year for daily
+        inqr_strt_dt = start_date.strftime("%Y%m%d")
+    elif timeframe == 'T': # Minute data
+        # For minute data, typically a shorter range is used, e.g., last few days
+        start_date = today - timedelta(days=7) # Last 7 days for minute data
+        inqr_strt_dt = start_date.strftime("%Y%m%d")
+        # KIS minute chart API for domestic requires end date in the future if current date is start date,
+        # or can be current date if searching a past day. Let's use current date for simplicity.
+        # For overseas minute, it requires start_date_time and close_date_time
+    else:
+        raise HTTPException(status_code=400, detail="Invalid timeframe. Choose from Y, M, W, D, T.")
+
+    processed_ohlcv = []
+    message = "OHLCV data fetched successfully."
 
     if ticker.isdigit(): # Domestic Stock
-        params = {
-            "env_dv": "real",
-            "fid_cond_mrkt_div_code": "J", # Always KRX for domestic stocks
-            "fid_input_iscd": ticker,
-            "fid_input_date_1": inqr_strt_dt,
-            "fid_input_date_2": inqr_end_dt,
-            "fid_period_div_code": fid_period_div_code,
-            "fid_org_adj_prc": "0" # 0: Adjusted price
-        }
-        data = await call_mcp_tool(MCP_STOCK_SERVER_URL, "domestic_stock", "inquire_daily_itemchartprice", params)
-        ohlcv_data = data.get("output2", [])
-
-        processed_ohlcv = []
-        for item in ohlcv_data:
-            processed_ohlcv.append({
-                "date": item.get("stck_bsop_date"),
-                "open": safe_float(item.get("stck_oprc")),
-                "high": safe_float(item.get("stck_hgpr")),
-                "low": safe_float(item.get("stck_lwpr")),
-                "close": safe_float(item.get("stck_clpr")),
-                "volume": safe_int(item.get("acml_vol"))
-            })
-        return {"data": processed_ohlcv}
-    else: # Overseas Stock
-        # Map timeframe to gubn for dailyprice tool
-        gubn_map = {
-            'D': '0',
-            'W': '1',
-            'M': '2',
-            'Y': '2' # dailyprice tool does not directly support yearly, default to monthly
-        }
-        gubn_code = gubn_map.get(timeframe.upper(), '0')
-
-        # List of exchanges to try for overseas stocks
-        exchanges_to_try = ["NAS", "NYS", "AMS"]
-        
-        for exchange in exchanges_to_try:
+        if timeframe == 'T': # Minute data for domestic
+            current_day_str = today.strftime("%Y%m%d")
+            
             params = {
-                "auth": "",
-                "excd": exchange,
-                "symb": ticker,
-                "gubn": gubn_code,
-                "bymd": inqr_end_dt,
-                "modp": "0",
-                "env_dv": "real"
+                "env_dv": "real",
+                "fid_cond_mrkt_div_code": "J",
+                "fid_input_iscd": ticker,
+                "fid_input_hour_1": "090000", # Standard market open time
+                "fid_pw_data_incu_yn": "Y",    # Include pre-market data
+                "fid_etc_cls_code": ""
             }
-            data = await call_mcp_tool(MCP_STOCK_SERVER_URL, "overseas_stock", "dailyprice", params)
-            ohlcv_data = data.get("output2", [])
+            logging.info(f"DEBUG: Domestic minute OHLCV params for {ticker}: {params}")
+            
+            data = await call_mcp_tool(MCP_STOCK_SERVER_URL, "domestic_stock", "inquire_time_itemchartprice", params)
+            logging.info(f"DEBUG: Raw data from domestic minute OHLCV for {ticker}: {data}")
+            ohlcv_data = data[0].get("output2", [])
 
-            if ohlcv_data: # If data is found, process and return it
-                processed_ohlcv = []
-                for item in ohlcv_data:
+            processed_ohlcv = []
+            for item in ohlcv_data:
+                # Ensure date and time are correctly formatted
+                cntg_hour = item.get("stck_cntg_hour")
+                if cntg_hour:
+                    # KIS API returns cntg_hour as HHMMSS, combine with current_day_str for full datetime
+                    dt_str = f"{current_day_str}T{cntg_hour[:2]}:{cntg_hour[2:4]}:{cntg_hour[4:6]}"
                     processed_ohlcv.append({
-                        "date": item.get("xymd"),
-                        "open": safe_float(item.get("open")),
-                        "high": safe_float(item.get("high")),
-                        "low": safe_float(item.get("low")),
-                        "close": safe_float(item.get("clos")),
-                        "volume": safe_int(item.get("tvol"))
+                        "date": dt_str,
+                        "open": safe_float(item.get("stck_oprc")),
+                        "high": safe_float(item.get("stck_hgpr")),
+                        "low": safe_float(item.get("stck_lwpr")),
+                        "close": safe_float(item.get("stck_clpr")), # Use stck_clpr for close price
+                        "volume": safe_int(item.get("acml_vol"))
                     })
-                return {"data": processed_ohlcv}
+            
+            logging.info(f"DEBUG: Processed domestic minute OHLCV (first 5): {processed_ohlcv[:5]}")
+            logging.info(f"DEBUG: Processed domestic minute OHLCV (last 5): {processed_ohlcv[-5:]}")
+
+            message = f"Minute OHLCV data for domestic stock fetched successfully for today."
+            
+        else: # Daily, Weekly, Monthly, Yearly for domestic
+            period_map = {
+                'Y': 'Y', 'M': 'M', 'W': 'W', 'D': 'D'
+            }
+            fid_period_div_code = period_map.get(timeframe, 'D')
+
+            params = {
+                "env_dv": "real",
+                "fid_cond_mrkt_div_code": "J", # Always KRX for domestic stocks
+                "fid_input_iscd": ticker,
+                "fid_input_date_1": inqr_strt_dt,
+                "fid_input_date_2": inqr_end_dt,
+                "fid_period_div_code": fid_period_div_code,
+                "fid_org_adj_prc": "0" # 0: Adjusted price
+            }
+            data = await call_mcp_tool(MCP_STOCK_SERVER_URL, "domestic_stock", "inquire_daily_itemchartprice", params)
+            ohlcv_data = data[0].get("output2", [])
+
+            current_calendar_year = today.year
+            for item in ohlcv_data:
+                item_date_str = item.get("stck_bsop_date")
+                year_of_data = int(item_date_str[:4])
+                
+                # For yearly data, set date to last day of the year for past years. For current year, use today's date.
+                if timeframe == 'Y' and year_of_data < current_calendar_year:
+                    formatted_date = f"{year_of_data}-12-31"
+                elif timeframe == 'Y' and year_of_data == current_calendar_year:
+                    formatted_date = today.strftime("%Y-%m-%d") # Use today's date for current year
+                else:
+                    formatted_date = f"{item_date_str[:4]}-{item_date_str[4:6]}-{item_date_str[6:8]}"
+
+                processed_ohlcv.append({
+                    "date": formatted_date,
+                    "open": safe_float(item.get("stck_oprc")),
+                    "high": safe_float(item.get("stck_hgpr")),
+                    "low": safe_float(item.get("stck_lwpr")),
+                    "close": safe_float(item.get("stck_clpr")),
+                    "volume": safe_int(item.get("acml_vol"))
+                })
+            message = f"{timeframe} OHLCV data for domestic stock fetched successfully."
+
+    else: # Overseas Stock
+        exchanges_to_try = ["NAS", "NYS", "AMS"]
+        found_exchange = None
         
-        # If loop finishes without finding data, return empty
-        return {"data": []}
+        if timeframe == 'Y':
+            monthly_ohlcv_data = []
+            # Fetch monthly data for overseas stock to aggregate into yearly
+            for exchange in exchanges_to_try:
+                params_monthly = {
+                    "auth": "",
+                    "excd": exchange,
+                    "symb": ticker,
+                    "gubn": "2", # Monthly data
+                    "bymd": inqr_end_dt, # End date for fetching monthly data
+                    "modp": "0",
+                    "env_dv": "real"
+                }
+                data = await call_mcp_tool(MCP_STOCK_SERVER_URL, "overseas_stock", "dailyprice", params_monthly)
+                
+                if data[0] and data[0].get("output2"):
+                    monthly_ohlcv_data = data[0]["output2"]
+                    found_exchange = exchange
+                    break
+            
+            if not monthly_ohlcv_data:
+                message = f"Could not fetch monthly data for overseas stock '{ticker}' from any exchange. Yearly OHLCV cannot be generated."
+            else:
+                logging.info(f"DEBUG: Raw monthly OHLCV data for {ticker}: {monthly_ohlcv_data}")
+                monthly_ohlcv_data.sort(key=lambda x: x.get('xymd', '')) # Sort ascending
+
+                yearly_ohlcv_aggregated = []
+                current_year_data = None
+
+                for item in monthly_ohlcv_data:
+                    item_date_str = item.get("xymd")
+                    if not item_date_str:
+                        continue
+                    item_date = datetime.strptime(item_date_str, "%Y%m%d")
+                    
+                    year = item_date.year
+                    open_price = safe_float(item.get("open"))
+                    high_price = safe_float(item.get("high"))
+                    low_price = safe_float(item.get("low"))
+                    close_price = safe_float(item.get("clos"))
+                    volume = safe_int(item.get("tvol"))
+
+                    if current_year_data is None or current_year_data['date'].split('-')[0] != str(year):
+                        if current_year_data is not None:
+                            yearly_ohlcv_aggregated.append(current_year_data)
+                        
+                        current_year_data = {
+                            "date": f"{year}-12-31", # Changed to YYYY-MM-DD format, last day of year
+                            "open": open_price,
+                            "high": high_price,
+                            "low": low_price,
+                            "close": close_price,
+                            "volume": volume
+                        }
+                    else:
+                        current_year_data['high'] = max(current_year_data['high'], high_price)
+                        current_year_data['low'] = min(current_year_data['low'], low_price)
+                        current_year_data['close'] = close_price
+                        current_year_data['volume'] += volume
+                
+                if current_year_data is not None:
+                    yearly_ohlcv_aggregated.append(current_year_data)
+                
+                # Set current year's date to today's date if it's the current calendar year, otherwise to Dec 31
+                current_calendar_year = datetime.now().year
+                for i in range(len(yearly_ohlcv_aggregated)):
+                    year_of_data = int(yearly_ohlcv_aggregated[i]['date'].split('-')[0])
+                    if year_of_data == current_calendar_year:
+                        yearly_ohlcv_aggregated[i]['date'] = today.strftime("%Y-%m-%d")
+                    else:
+                        yearly_ohlcv_aggregated[i]['date'] = f"{year_of_data}-12-31"
+
+                message = f"Yearly OHLCV data for overseas stock '{ticker}' generated from monthly data from {found_exchange}. Current year's data is included."
+                
+                processed_ohlcv = yearly_ohlcv_aggregated
+                logging.info(f"DEBUG: Aggregated yearly OHLCV data for {ticker}: {processed_ohlcv}")
+
+        elif timeframe in ['M', 'W', 'D']: # Monthly, Weekly, Daily for overseas
+            gubn_map = {
+                'D': '0', 'W': '1', 'M': '2'
+            }
+            gubn_code = gubn_map.get(timeframe)
+            
+            for exchange in exchanges_to_try:
+                params = {
+                    "auth": "",
+                    "excd": exchange,
+                    "symb": ticker,
+                    "gubn": gubn_code,
+                    "bymd": inqr_end_dt,
+                    "modp": "0",
+                    "env_dv": "real"
+                }
+                data = await call_mcp_tool(MCP_STOCK_SERVER_URL, "overseas_stock", "dailyprice", params)
+                ohlcv_data = data[0].get("output2", [])
+
+                if ohlcv_data: # If data is found, process and return it
+                    for item in ohlcv_data:
+                        processed_ohlcv.append({
+                            "date": item.get("xymd"),
+                            "open": safe_float(item.get("open")),
+                            "high": safe_float(item.get("high")),
+                            "low": safe_float(item.get("low")),
+                            "close": safe_float(item.get("clos")),
+                            "volume": safe_int(item.get("tvol"))
+                        })
+                    found_exchange = exchange
+                    message = f"{timeframe} OHLCV data for overseas stock fetched successfully from {found_exchange}."
+                    break # Exit loop once data is found
+
+            if not found_exchange:
+                message = f"Could not fetch {timeframe} OHLCV data for overseas stock '{ticker}' from any exchange."
+
+        elif timeframe == 'T': # Minute data for overseas
+            all_ohlcv_data = []
+            for exchange in ["NYS", "NAS", "AMS"]:
+                params = {"auth": "", "excd": exchange, "symb": ticker, "nmin": "1", "pinc": "1", "next": "", "nrec": "120", "fill": "", "keyb": ""}
+                data = await call_mcp_tool(MCP_STOCK_SERVER_URL, "overseas_stock", "inquire_time_itemchartprice", params)
+                page_data = data[0].get("output2", []) # data is a tuple (output, message)
+                if page_data:
+                    all_ohlcv_data = page_data
+                    found_exchange = exchange
+                    break
+            
+            if all_ohlcv_data and safe_float(all_ohlcv_data[0].get("open")) == 0:
+                message = f"Overseas minute OHLCV data for '{ticker}' is empty or invalid from {found_exchange}."
+            else:
+                for item in all_ohlcv_data:
+                    tymd = item.get('tymd')
+                    xhms = item.get('xhms')
+                    if tymd and xhms:
+                        dt_str = f"{tymd[:4]}-{tymd[4:6]}-{tymd[6:8]}T{xhms[:2]}:{xhms[2:4]}:{xhms[4:6]}"
+                        processed_ohlcv.append({
+                            "date": dt_str,
+                            "open": safe_float(item.get("open")),
+                            "high": safe_float(item.get("high")),
+                            "low": safe_float(item.get("low")),
+                            "close": safe_float(item.get("last")),
+                            "volume": safe_int(item.get("evol"))
+                        })
+                message = f"Minute OHLCV data for overseas stock fetched successfully from {found_exchange}."
+            
+    processed_ohlcv.sort(key=lambda x: x.get('date')) # Ensure ascending order by date
+    return {"data": processed_ohlcv, "message": message}
 
 @app.get("/current_price/{ticker}")
 async def get_current_price(ticker: str):
@@ -426,12 +608,12 @@ async def get_current_price(ticker: str):
     else: # Domestic
         params = {"env_dv": "real", "fid_cond_mrkt_div_code": "J", "fid_input_iscd": ticker}
         data = await call_mcp_tool(MCP_STOCK_SERVER_URL, "domestic_stock", "inquire_price", params)
-        if isinstance(data, list) and len(data) > 0:
-            output = data[0]
+        if isinstance(data[0], list) and len(data[0]) > 0:
+            output = data[0][0] # Assuming list of dicts, take first dict
             if output:
                 return {"current_price": safe_float(output.get("stck_prpr"))}
-        elif isinstance(data, dict):
-            output = data.get("output", {})
+        elif isinstance(data[0], dict):
+            output = data[0].get("output", {})
             if output:
                 return {"current_price": safe_float(output.get("stck_prpr"))}
         return {"current_price": 0.0}
@@ -446,9 +628,10 @@ async def get_stock_detail(ticker: str):
         # First, find the correct exchange and get the price data
         for exchange in exchanges_to_try:
             price_params = {"auth": "", "excd": exchange, "symb": ticker}
-            data = await call_mcp_tool(MCP_STOCK_SERVER_URL, "overseas_stock", "price", price_params)
-            if isinstance(data, list) and len(data) > 0 and data[0].get("last"):
-                price_data = data
+            raw_data = await call_mcp_tool(MCP_STOCK_SERVER_URL, "overseas_stock", "price", price_params)
+            data_content = raw_data[0] # Get the actual data from the tuple
+            if isinstance(data_content, list) and len(data_content) > 0 and data_content[0].get("last"):
+                price_data = data_content
                 found_exchange = exchange
                 break
         
@@ -476,7 +659,7 @@ async def get_stock_detail(ticker: str):
         # Process daily_data to get high and low
         high_price = 0.0
         low_price = 0.0
-        ohlcv_data = daily_data.get("output2", [])
+        ohlcv_data = daily_data[0].get("output2", [])
         if isinstance(ohlcv_data, list) and len(ohlcv_data) > 0:
             latest_ohlcv = ohlcv_data[0]
             high_price = safe_float(latest_ohlcv.get("high"))
@@ -497,22 +680,26 @@ async def get_stock_detail(ticker: str):
         info_params = {"prdt_type_cd": "300", "pdno": ticker} # Added prdt_type_cd
 
         # Using asyncio.gather for concurrent calls
-        price_data_list, info_data_raw = await asyncio.gather(
+        price_raw_result, info_raw_result = await asyncio.gather(
             call_mcp_tool(MCP_STOCK_SERVER_URL, "domestic_stock", "inquire_price", price_params),
             call_mcp_tool(MCP_STOCK_SERVER_URL, "domestic_stock", "search_stock_info", info_params)
         )
         
+        # Unpack the actual data from the tuples returned by call_mcp_tool
+        price_data_content = price_raw_result[0]
+        info_data_content = info_raw_result[0]
+
         price_data = {}
-        if isinstance(price_data_list, list) and len(price_data_list) > 0:
-            price_data = price_data_list[0]
-        elif isinstance(price_data_list, dict):
-            price_data = price_data_list.get("output", {})
+        if isinstance(price_data_content, list) and len(price_data_content) > 0:
+            price_data = price_data_content[0] # Assume the first item in the list is the price dict
+        elif isinstance(price_data_content, dict):
+            price_data = price_data_content.get("output", {}) # inquire_price wraps in "output"
 
         info_data = {}
-        if isinstance(info_data_raw, list) and len(info_data_raw) > 0:
-            info_data = info_data_raw[0]
-        elif isinstance(info_data_raw, dict):
-            info_data = info_data_raw # Directly assign the dict, no "output" key expected
+        if isinstance(info_data_content, list) and len(info_data_content) > 0:
+            info_data = info_data_content[0] # Assume the first item in the list is the info dict
+        elif isinstance(info_data_content, dict):
+            info_data = info_data_content # search_stock_info returns the dict directly
 
         stock_name = info_data.get("prdt_abrv_name", ticker) if info_data else ticker
 
@@ -555,9 +742,9 @@ async def get_us_market_cap_ranking():
             "keyb": ""
         }
         data = await call_mcp_tool(MCP_STOCK_SERVER_URL, "overseas_stock", "inquire_search", params)
-        if data and data.get("output2"):
+        if data[0] and data[0].get("output2"):
             items_found_for_exchange = 0
-            for item in data["output2"]:
+            for item in data[0]["output2"]:
                 ticker = item.get("symb", "")
                 if ticker:
                     # The 'valx' field from inquire_search is market cap in thousands
