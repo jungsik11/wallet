@@ -181,7 +181,7 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
             builder: (context) => Dialog(
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20.0)),
               child: SizedBox(
-                width: MediaQuery.of(context).size.width * 0.7,
+                width: MediaQuery.of(context).size.width * 0.85,
                 height: MediaQuery.of(context).size.height * 0.7,
                 child: const ChatbotScreen(),
               ),

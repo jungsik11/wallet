@@ -137,116 +137,115 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 _isFetchingModels
-                    ? const SizedBox(
-                        height: 24,
-                        width: 24,
-                        child: CircularProgressIndicator(strokeWidth: 2.0, valueColor: AlwaysStoppedAnimation<Color>(Colors.white)))
-                    : DropdownButton<String>(
-                        value: _selectedModel,
-                        hint: Text('Select Model', style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontSize: getResponsiveFontSize(context, 12))),
-                        dropdownColor: Theme.of(context).cardColor,
-                        items: _models.map((String model) {
-                          return DropdownMenuItem<String>(
-                            value: model,
-                            child: Text(
-                              model.length > 20
-                                  ? '${model.substring(0, 17)}...'
-                                  : model,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontSize: getResponsiveFontSize(context, 12)),
-                            ),
-                          );
-                        }).toList(),
-                        onChanged: (String? newValue) {
-                          setState(() {
-                            _selectedModel = newValue;
-                          });
-                        },
-                      ),
-                IconButton(
-                  icon: Icon(Icons.close, color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7)),
-                  onPressed: () => Navigator.of(context).pop(),
-                ),
-              ],
-            ),
-          ),
-          Expanded(
-            child: ListView.builder(
-              controller: _scrollController,
-              padding: const EdgeInsets.all(8.0),
-              itemCount: _messages.length,
-              itemBuilder: (context, index) {
-                final message = _messages[index];
-                return Align(
-                  alignment: message.isUser
-                      ? Alignment.centerRight
-                      : Alignment.centerLeft,
-                  child: Container(
-                    margin: const EdgeInsets.symmetric(vertical: 5.0, horizontal: 8.0),
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 14.0, vertical: 10.0),
-                    decoration: BoxDecoration(
-                      color: message.isUser
-                          ? Theme.of(context).colorScheme.primaryContainer
-                          : Theme.of(context).colorScheme.secondaryContainer, // Desaturated teal
-                      borderRadius: BorderRadius.circular(20.0),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.05),
-                          spreadRadius: 1,
-                          blurRadius: 3,
-                          offset: const Offset(0, 2), // changes position of shadow
-                        ),
-                      ],
-                    ),
-                    child: Text(
-                      message.text,
-                      style: TextStyle(color: message.isUser ? Theme.of(context).colorScheme.onPrimaryContainer : Theme.of(context).colorScheme.onSecondaryContainer, fontSize: getResponsiveFontSize(context, 12)),
-                    ),
-                  ),
-                );
-              },
-            ),
-          ),
-          if (_isLoading)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8.0),
-              child: LinearProgressIndicator(backgroundColor: Theme.of(context).colorScheme.surfaceVariant, valueColor: AlwaysStoppedAnimation<Color>(Theme.of(context).colorScheme.secondary)),
-            ),
-          Padding(
-            padding: const EdgeInsets.all(12.0),
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _controller,
-                    style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontSize: getResponsiveFontSize(context, 12)),
-                    decoration: InputDecoration(
-                      hintText: '메시지를 입력하세요...',
-                      hintStyle: TextStyle(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6), fontSize: getResponsiveFontSize(context, 12)),
-                      filled: true,
-                      fillColor: Theme.of(context).colorScheme.surfaceVariant,
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(30.0),
-                        borderSide: BorderSide.none,
-                      ),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 5),
-                    ),
-                    onSubmitted: (value) => _sendMessage(),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                IconButton(
-                  icon: Icon(Icons.send, color: Theme.of(context).colorScheme.secondary), // Use theme color
-                  onPressed: _isLoading || _selectedModel == null
-                      ? null
-                      : _sendMessage,
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
+                                          ? const SizedBox(
+                                              height: 24,
+                                              width: 24,
+                                              child: CircularProgressIndicator(strokeWidth: 2.0, valueColor: AlwaysStoppedAnimation<Color>(Colors.white)))
+                                          : DropdownButton<String>(
+                                              value: _selectedModel,
+                                              hint: Text('Select Model', style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontSize: getResponsiveFontSize(context, 11))),
+                                              dropdownColor: Theme.of(context).cardColor,
+                                              items: _models.map((String model) {
+                                                return DropdownMenuItem<String>(
+                                                  value: model,
+                                                  child: Text(
+                                                    model.length > 20
+                                                        ? '${model.substring(0, 17)}...'
+                                                        : model,
+                                                    overflow: TextOverflow.ellipsis,
+                                                    style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontSize: getResponsiveFontSize(context, 11)),
+                                                  ),
+                                                );
+                                              }).toList(),
+                                              onChanged: (String? newValue) {
+                                                setState(() {
+                                                  _selectedModel = newValue;
+                                                });
+                                              },
+                                            ),
+                                      IconButton(
+                                        icon: Icon(Icons.close, color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7)),
+                                        onPressed: () => Navigator.of(context).pop(),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                Expanded(
+                                  child: ListView.builder(
+                                    controller: _scrollController,
+                                    padding: const EdgeInsets.all(8.0),
+                                    itemCount: _messages.length,
+                                    itemBuilder: (context, index) {
+                                      final message = _messages[index];
+                                      return Align(
+                                        alignment: message.isUser
+                                            ? Alignment.centerRight
+                                            : Alignment.centerLeft,
+                                        child: Container(
+                                          margin: const EdgeInsets.symmetric(vertical: 5.0, horizontal: 8.0),
+                                          padding: const EdgeInsets.symmetric(
+                                              horizontal: 14.0, vertical: 10.0),
+                                          decoration: BoxDecoration(
+                                            color: message.isUser
+                                                ? Theme.of(context).colorScheme.primaryContainer
+                                                : Theme.of(context).colorScheme.secondaryContainer, // Desaturated teal
+                                            borderRadius: BorderRadius.circular(20.0),
+                                            boxShadow: [
+                                              BoxShadow(
+                                                color: Colors.black.withOpacity(0.05),
+                                                spreadRadius: 1,
+                                                blurRadius: 3,
+                                                offset: const Offset(0, 2), // changes position of shadow
+                                              ),
+                                            ],
+                                          ),
+                                          child: Text(
+                                            message.text,
+                                            style: TextStyle(color: message.isUser ? Theme.of(context).colorScheme.onPrimaryContainer : Theme.of(context).colorScheme.onSecondaryContainer, fontSize: getResponsiveFontSize(context, 11)),
+                                          ),
+                                        ),
+                                      );
+                                    },
+                                  ),
+                                ),
+                                if (_isLoading)
+                                  Padding(
+                                    padding: const EdgeInsets.symmetric(horizontal: 8.0),
+                                    child: LinearProgressIndicator(backgroundColor: Theme.of(context).colorScheme.surfaceVariant, valueColor: AlwaysStoppedAnimation<Color>(Theme.of(context).colorScheme.secondary)),
+                                  ),
+                                Padding(
+                                  padding: const EdgeInsets.all(12.0),
+                                  child: Row(
+                                    children: [
+                                      Expanded(
+                                        child: TextField(
+                                          controller: _controller,
+                                          style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontSize: getResponsiveFontSize(context, 11)),
+                                          decoration: InputDecoration(
+                                            hintText: '메시지를 입력하세요...',
+                                            hintStyle: TextStyle(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6), fontSize: getResponsiveFontSize(context, 11)),
+                                            filled: true,
+                                            fillColor: Theme.of(context).colorScheme.surfaceVariant,
+                                            border: OutlineInputBorder(
+                                              borderRadius: BorderRadius.circular(30.0),
+                                              borderSide: BorderSide.none,
+                                            ),
+                                            contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 5),
+                                          ),
+                                          onSubmitted: (value) => _sendMessage(),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      IconButton(
+                                        icon: Icon(Icons.send, color: Theme.of(context).colorScheme.secondary), // Use theme color
+                                        onPressed: _isLoading || _selectedModel == null
+                                            ? null
+                                            : _sendMessage,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),    );
   }
 }

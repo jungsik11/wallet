@@ -1,0 +1,14 @@
+version: '3.8'
+
+services:
+  mcp-frontend-copilot:
+    build:
+      context: ../..
+      dockerfile: backend/docker/Dockerfiles/frontend.Dockerfile
+    image: mcp-frontend-copilot:latest
+    container_name: mcp-frontend-copilot
+    ports:
+      - "3003:3001"
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
