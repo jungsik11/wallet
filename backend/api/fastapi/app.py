@@ -137,15 +137,19 @@ async def get_account_balance(country: str = Query(None, description="Country co
     if country == "KR":
         params = {
             "cano": os.getenv("KIS_ACCT_STOCK1"), "acnt_prdt_cd": os.getenv("KIS_PROD_TYPE1"),
-            "env_dv": "real", # Added missing env_dv parameter
-            "afhr_flpr_yn": "N", "inqr_dvsn": "01", "unpr_dvsn": "01",
+            "env_dv": "real",
+            "afhr_flpr_yn": "N", "inqr_dvsn": "02", "unpr_dvsn": "01",
             "fund_sttl_icld_yn": "N", "fncg_amt_auto_rdpt_yn": "N", "prcs_dvsn": "00"
         }
         logging.info(f"DEBUG: Calling MCP tool for KR account balance with api_type='domestic_stock', specific_api_type='inquire_balance', params={params}")
         data = await call_mcp_tool(MCP_STOCK_SERVER_URL, "domestic_stock", "inquire_balance", params)
         logging.info(f"DEBUG: Raw data received from MCP tool for KR account balance: {data}")
-        stocks = data[0].get("output1", [])
-        summary = data[0].get("output2", [{}])[0]
+        
+        # FIX: data is a dict, not a list
+        stocks = data.get("output1", [])
+        summary = {}
+        if data.get("output2"):
+            summary = data.get("output2", [{}])[0]
 
         return {
             "cash": {"krw": safe_int(summary.get("dnca_tot_amt"))},
@@ -160,17 +164,20 @@ async def get_account_balance(country: str = Query(None, description="Country co
         }
     elif country == "US":
         params = {
-            "wcrc_frcr_dvsn_cd": "02",  # 02 : 외화 (Foreign Currency)
-            "natn_cd": "840",           # 840 : 미국 (USA)
-            "tr_mket_cd": "00",         # 00 : 전체 (All Markets)
-            "inqr_dvsn_cd": "00",       # 00 : 전체 (All Inquiry Divisions)
+            "wcrc_frcr_dvsn_cd": "02",
+            "natn_cd": "840",
+            "tr_mket_cd": "00",
+            "inqr_dvsn_cd": "00",
         }
         logging.info(f"DEBUG: Calling MCP tool for US account balance with api_type='overseas_stock', specific_api_type='inquire_present_balance', params={params}")
         data = await call_mcp_tool(MCP_STOCK_SERVER_URL, "overseas_stock", "inquire_present_balance", params)
         logging.info(f"DEBUG: Raw data received from MCP tool for US account balance: {data}")
         
-        stocks = data[0].get("output1", [])
-        summary_output2 = data[0].get("output2", [{}])[0]
+        # FIX: data is a dict, not a list
+        stocks = data.get("output1", [])
+        summary_output2 = {}
+        if data.get("output2"):
+            summary_output2 = data.get("output2", [{}])[0]
 
         return {
             "cash": {"usd": safe_float(summary_output2.get("frcr_dncl_amt_2"))},
@@ -188,7 +195,7 @@ async def get_account_balance(country: str = Query(None, description="Country co
                     "currency": s.get("buy_crcy_cd")
                 } for s in stocks
             ],
-            "exchange_rate": safe_float(summary_output2.get('frst_bltn_exrt', 0 )) # Add exchange rate to the response
+            "exchange_rate": safe_float(summary_output2.get('frst_bltn_exrt', 0 ))
         }    
     else:
         raise HTTPException(status_code=400, detail="Country must be KR or US")
@@ -201,26 +208,28 @@ async def calculate_profit(country: str = Query(..., description="Country code (
 
     if country == "US":
         us_params = {
-            "cano": os.getenv("KIS_ACNT")[:8],
-            "acnt_prdt_cd": os.getenv("KIS_ACNT")[9:],
-            "ovrs_excg_cd": "NASD",  # For US, use NASD for consolidated
-            "natn_cd": "",           # Empty for default
+            "cano": os.getenv("KIS_ACCT_STOCK1"),
+            "acnt_prdt_cd": os.getenv("KIS_PROD_TYPE1"),
+            "ovrs_excg_cd": "NASD",
+            "natn_cd": "",
             "crcy_cd": "USD",
-            "pdno": "",              # Empty for all products
+            "pdno": "",
             "inqr_strt_dt": inqr_strt_dt,
             "inqr_end_dt": inqr_end_dt,
-            "wcrc_frcr_dvsn_cd": "01", # 01: Foreign Currency
+            "wcrc_frcr_dvsn_cd": "01",
             "FK200": "",
             "NK200": "",
         }
         us_data = await call_mcp_tool(MCP_STOCK_SERVER_URL, "overseas_stock", "inquire_period_profit", us_params)
 
-        us_stocks_profit_data = us_data[0].get("output1", [])
-        us_overall_profit_summary = us_data[0].get("output2", [{}])[0]
+        us_stocks_profit_data = us_data.get("output1", [])
+        us_overall_profit_summary = {}
+        if us_data.get("output2"):
+            us_overall_profit_summary = us_data.get("output2", [{}])[0]
 
         total_usd_profit_for_year = safe_float(us_overall_profit_summary.get("ovrs_rlzt_pfls_tot_amt"))
         
-        all_processed_stocks_usd: Dict[str, Dict[str, Any]] = {} # ticker -> {name, market, currency, cumulative_profit_usd}
+        all_processed_stocks_usd: Dict[str, Dict[str, Any]] = {}
         for s in us_stocks_profit_data:
             ticker = s.get("ovrs_pdno")
             if ticker not in all_processed_stocks_usd:
@@ -229,15 +238,15 @@ async def calculate_profit(country: str = Query(..., description="Country code (
                     "ticker": ticker,
                     "market": s.get("ovrs_excg_cd"),
                     "currency": "USD",
-                    "yearly_profit_usd": 0.0 # Changed to yearly_profit_usd
+                    "yearly_profit_usd": 0.0
                 }
             stock_usd_profit = safe_float(s.get("ovrs_rlzt_pfls_amt"))
-            all_processed_stocks_usd[ticker]["yearly_profit_usd"] += stock_usd_profit # Changed to yearly_profit_usd
+            all_processed_stocks_usd[ticker]["yearly_profit_usd"] += stock_usd_profit
         
         final_stocks_output_usd = []
         for ticker, details in all_processed_stocks_usd.items():
             final_stocks_output_usd.append(StockHolding(
-                yearly_profit={"USD": details["yearly_profit_usd"]}, # Changed to yearly_profit_usd
+                yearly_profit={"USD": details["yearly_profit_usd"]},
                 holdings={
                     "name": details["name"],
                     "ticker": details["ticker"],
@@ -251,27 +260,28 @@ async def calculate_profit(country: str = Query(..., description="Country code (
 
     elif country == "KR":
         kr_all_trades_params = {
-            "cano": os.getenv("KIS_ACNT")[:8],
-            "acnt_prdt_cd": os.getenv("KIS_ACNT")[9:],
+            "cano": os.getenv("KIS_ACCT_STOCK1"),
+            "acnt_prdt_cd": os.getenv("KIS_PROD_TYPE1"),
             "inqr_strt_dt": inqr_strt_dt,
             "inqr_end_dt": inqr_end_dt,
             "sort_dvsn": "00",
             "cblc_dvsn": "00",
-            "pdno": "",  # Empty to get all stocks with trades
+            "pdno": "",
             "tr_cont": "",
         }
         kr_all_trades_data = await call_mcp_tool(
             MCP_STOCK_SERVER_URL, "domestic_stock", "inquire_period_trade_profit", kr_all_trades_params
         )
         
-        kr_stocks_with_trades = kr_all_trades_data[0].get("output1", [])
-        kr_overall_summary = kr_all_trades_data[0].get("output2", [{}])[0]
+        kr_stocks_with_trades = kr_all_trades_data.get("output1", [])
+        kr_overall_summary = {}
+        if kr_all_trades_data.get("output2"):
+            kr_overall_summary = kr_all_trades_data.get("output2", [{}])[0]
         
         total_krw_profit_for_year = safe_float(kr_overall_summary.get("tot_rlzt_pfls", kr_overall_summary.get("rlzt_pfls_amt")))
         
-        all_processed_stocks_krw: Dict[str, Dict[str, Any]] = {} # ticker -> {name, market, currency, cumulative_profit_krw}
+        all_processed_stocks_krw: Dict[str, Dict[str, Any]] = {}
 
-        # Optimized logic: Process trades from the single API call
         for trade in kr_stocks_with_trades:
             pdno = trade.get("pdno")
             prdt_name = trade.get("prdt_name")
@@ -293,7 +303,7 @@ async def calculate_profit(country: str = Query(..., description="Country code (
         final_stocks_output_krw = []
         for ticker, details in all_processed_stocks_krw.items():
             final_stocks_output_krw.append(StockHolding(
-                yearly_profit={"KRW": details["yearly_profit_krw"]}, # Changed to yearly_profit_krw
+                yearly_profit={"KRW": details["yearly_profit_krw"]},
                 holdings={
                     "name": details["name"],
                     "ticker": details["ticker"],
@@ -311,24 +321,28 @@ async def calculate_profit(country: str = Query(..., description="Country code (
 async def get_account_balance_pension():
     params = {
             "cano": os.getenv("KIS_ACCT_STOCK2"), "acnt_prdt_cd": os.getenv("KIS_PROD_TYPE2"),
-            "env_dv": "real", # Added missing env_dv parameter
-            "afhr_flpr_yn": "N", "inqr_dvsn": "01", "unpr_dvsn": "01",
+            "env_dv": "real",
+            "afhr_flpr_yn": "N", "inqr_dvsn": "02", "unpr_dvsn": "01",
             "fund_sttl_icld_yn": "N", "fncg_amt_auto_rdpt_yn": "N", "prcs_dvsn": "00"
         }
     data = await call_mcp_tool(MCP_PENSION_SERVER_URL, "domestic_stock", "inquire_balance", params)
-    stocks = data[0].get("output1", [])
-    summary = data[0].get("output2", [{}])[0]
+    
+    # FIX: data is a dict, not a list
+    stocks = data.get("output1", [])
+    summary = {}
+    if data.get("output2"):
+        summary = data.get("output2", [{}])[0]
     
     return {
-    "cash": {"krw": safe_int(summary.get("dnca_tot_amt"))},
-    "stocks": [
-        {
-            "name": s.get("prdt_name"), "ticker": s.get("pdno"), "quantity": safe_int(s.get("hldg_qty")),
-            "profit_loss_ratio": safe_float(s.get("evlu_pfls_rt")), "market": "KRX",
-            "average_price": safe_float(s.get("pchs_avg_pric")), "current_price": safe_float(s.get("prpr")),
-            "valuation": safe_int(s.get("evlu_amt")), "profit_loss": safe_int(s.get("evlu_pfls_amt")), "currency": "KRW"
-        } for s in stocks
-    ]
+        "cash": {"krw": safe_int(summary.get("dnca_tot_amt"))},
+        "stocks": [
+            {
+                "name": s.get("prdt_name"), "ticker": s.get("pdno"), "quantity": safe_int(s.get("hldg_qty")),
+                "profit_loss_ratio": safe_float(s.get("evlu_pfls_rt")), "market": "KRX",
+                "average_price": safe_float(s.get("pchs_avg_pric")), "current_price": safe_float(s.get("prpr")),
+                "valuation": safe_int(s.get("evlu_amt")), "profit_loss": safe_int(s.get("evlu_pfls_amt")), "currency": "KRW"
+            } for s in stocks
+        ]
     }
 
 

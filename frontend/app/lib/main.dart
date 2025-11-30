@@ -205,9 +205,9 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
     // HomeScreen에 필요한 데이터 전달
     return HomeScreen(
       usProfitData: _usProfitData!,
-      usBalanceData: _usBalanceData!['stocks'] as List<dynamic>,
+      usBalanceData: (_usBalanceData!['stocks'] as List<dynamic>?) ?? [],
       krProfitData: _krProfitData!,
-      krBalanceData: _krBalanceData!['stocks'] as List<dynamic>,
+      krBalanceData: (_krBalanceData!['stocks'] as List<dynamic>?) ?? [],
       pensionBalanceData: _pensionBalanceData!,
       usExchangeRate: _usExchangeRate,
       onRefresh: _fetchData,
@@ -254,9 +254,9 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
 
     return ProfitScreen(
       usProfitData: _usProfitData!,
-      usBalanceData: _usBalanceData!['stocks'] as List<dynamic>,
+      usBalanceData: (_usBalanceData!['stocks'] as List<dynamic>?) ?? [],
       krProfitData: _krProfitData!,
-      krBalanceData: _krBalanceData!['stocks'] as List<dynamic>,
+      krBalanceData: (_krBalanceData!['stocks'] as List<dynamic>?) ?? [],
       usExchangeRate: _usExchangeRate!,
       krExchangeRate: null, // krExchangeRate is no longer needed
     );

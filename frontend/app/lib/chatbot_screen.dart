@@ -58,17 +58,29 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
 
   Future<void> _fetchModels() async {
     try {
-      final models = await _ollamaService.fetchOllamaModels();
-      setState(() {
-        _models = models;
-        if (_models.isNotEmpty) {
-          _selectedModel = _models.contains('llama3:latest')
-              ? 'llama3:latest'
-              : _models.first;
-        }
-        _isFetchingModels = false;
-      });
-    } catch (e) {
+              final models = await _ollamaService.fetchOllamaModels();
+              setState(() {
+                _models = models;
+                if (_models.isNotEmpty) {
+                  String? preferredModel;
+                  // First, try to find a model that contains 'gpt' (case-insensitive)
+                  for (String modelName in models) {
+                    if (modelName.toLowerCase().contains('gpt')) {
+                      preferredModel = modelName;
+                      break;
+                    }
+                  }
+      
+                  if (preferredModel != null) {
+                    _selectedModel = preferredModel;
+                  } else if (_models.contains('llama3:latest')) {
+                    _selectedModel = 'llama3:latest';
+                  } else {
+                    _selectedModel = _models.first;
+                  }
+                }
+                _isFetchingModels = false;
+              });    } catch (e) {
       setState(() {
         _isFetchingModels = false;
         // You could show an error message to the user here
