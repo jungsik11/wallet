@@ -31,11 +31,9 @@ async def call_mcp_tool(server_url: str, tool_name: str, api_type: str, params: 
     retry_delay = 2  # seconds
     for attempt in range(max_retries):
         try:
-            logging.info(f"Calling MCP tool (attempt {attempt + 1}/{max_retries}): {tool_name}, api_type: {api_type}, params: {params}")
             async with Client(f"{server_url}/sse") as client:
                 result = await client.call_tool(tool_name, {"api_type": api_type, "params": params})
                 response_text = result.content[0].text
-                logging.info(f"MCP tool response text: {response_text}")
                 outer_json_response = loads(response_text)
                 
                 # Check for the structure with 'ok' and a nested 'data' field containing another JSON string
@@ -45,12 +43,9 @@ async def call_mcp_tool(server_url: str, tool_name: str, api_type: str, params: 
                     
                     if "data" in outer_json_response["data"] and isinstance(outer_json_response["data"]["data"], str):
                         inner_json_string = outer_json_response["data"]["data"]
-                        # Log the inner JSON string for debugging
-                        logging.info(f"MCP tool inner JSON string: {inner_json_string}")
                         return loads(inner_json_string) # Parse the inner JSON string
                     else:
                         # If it's not the double-encoded format, return the outer parsed JSON directly
-                        logging.warning(f"MCP tool response not in expected double-encoded format. Returning outer JSON: {outer_json_response}")
                         return outer_json_response
         except Exception as e:
             logging.error(f"Error calling MCP tool '{tool_name}' on attempt {attempt + 1}: {e}")

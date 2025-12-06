@@ -184,17 +184,19 @@ class _RankingScreenState extends State<RankingScreen> with AutomaticKeepAliveCl
                   DataColumn(label: Text('시가총액')),
                 ],
           rows: _rankingData.asMap().entries.map((entry) {
-            int index = entry.key;
-            var stock = entry.value;
-                          final ticker = stock['symb'];            
-            if (widget.selectedRankingType == 'market_cap') {
-              print('DEBUG: Market Cap Stock Data: $stock');
+                        int index = entry.key;
+                        var stock = entry.value;
+                                                final ticker = stock['ticker'];            
+                                                
+                                                // Safely parse values that might be String or num from the API
+                        final String price = formatPrice(stock['price']);
+            List<DataCell> cells = [];
+
+            if (widget.selectedRankingType == 'top_gainers') {
+              cells.add(DataCell(Text('${index + 1}')));
             }
             
-            // Safely parse values that might be String or num from the API
-            final String price = formatPrice(stock['price']);
-
-            List<DataCell> cells = [
+            cells.addAll([
               DataCell(
                 InkWell(
                   onTap: () {
@@ -229,7 +231,7 @@ class _RankingScreenState extends State<RankingScreen> with AutomaticKeepAliveCl
                   ],
                 ),
               ),
-            ];
+            ]);
 
             if (widget.selectedRankingType == 'top_gainers') { // Use widget.selectedRankingType
               final double rate = double.tryParse(stock['rate']?.toString() ?? '') ?? 0.0;

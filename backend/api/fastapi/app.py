@@ -141,9 +141,7 @@ async def get_account_balance(country: str = Query(None, description="Country co
             "afhr_flpr_yn": "N", "inqr_dvsn": "02", "unpr_dvsn": "01",
             "fund_sttl_icld_yn": "N", "fncg_amt_auto_rdpt_yn": "N", "prcs_dvsn": "00"
         }
-        logging.info(f"DEBUG: Calling MCP tool for KR account balance with api_type='domestic_stock', specific_api_type='inquire_balance', params={params}")
         data = await call_mcp_tool(MCP_STOCK_SERVER_URL, "domestic_stock", "inquire_balance", params)
-        logging.info(f"DEBUG: Raw data received from MCP tool for KR account balance: {data}")
         
         # FIX: data is a dict, not a list
         stocks = data.get("output1", [])
@@ -169,9 +167,7 @@ async def get_account_balance(country: str = Query(None, description="Country co
             "tr_mket_cd": "00",
             "inqr_dvsn_cd": "00",
         }
-        logging.info(f"DEBUG: Calling MCP tool for US account balance with api_type='overseas_stock', specific_api_type='inquire_present_balance', params={params}")
         data = await call_mcp_tool(MCP_STOCK_SERVER_URL, "overseas_stock", "inquire_present_balance", params)
-        logging.info(f"DEBUG: Raw data received from MCP tool for US account balance: {data}")
         
         # FIX: data is a dict, not a list
         stocks = data.get("output1", [])
@@ -255,7 +251,6 @@ async def calculate_profit(country: str = Query(..., description="Country code (
                 }
             ))
         
-        logging.info(f"DEBUG: US yearly_profit_usd for {year}: {total_usd_profit_for_year}")
         return {"yearly_profit_usd": total_usd_profit_for_year, "stocks": final_stocks_output_usd}
 
     elif country == "KR":
@@ -311,7 +306,6 @@ async def calculate_profit(country: str = Query(..., description="Country code (
                     "currency": details["currency"]
                 }
             ))
-        logging.info(f"DEBUG: KR yearly_profit_krw for {year}: {total_krw_profit_for_year}")
         return {"yearly_profit_krw": total_krw_profit_for_year, "stocks": final_stocks_output_krw}
     
     else:
@@ -392,11 +386,9 @@ async def get_ohlcv_by_timeframe(ticker: str, timeframe: str):
                 "fid_pw_data_incu_yn": "Y",    # Include pre-market data
                 "fid_etc_cls_code": ""
             }
-            logging.info(f"DEBUG: Domestic minute OHLCV params for {ticker}: {params}")
             
             data = await call_mcp_tool(MCP_STOCK_SERVER_URL, "domestic_stock", "inquire_time_itemchartprice", params)
-            logging.info(f"DEBUG: Raw data from domestic minute OHLCV for {ticker}: {data}")
-            ohlcv_data = data[0].get("output2", [])
+            ohlcv_data = data.get("output2", [])
 
             processed_ohlcv = []
             for item in ohlcv_data:
@@ -414,9 +406,6 @@ async def get_ohlcv_by_timeframe(ticker: str, timeframe: str):
                         "volume": safe_int(item.get("acml_vol"))
                     })
             
-            logging.info(f"DEBUG: Processed domestic minute OHLCV (first 5): {processed_ohlcv[:5]}")
-            logging.info(f"DEBUG: Processed domestic minute OHLCV (last 5): {processed_ohlcv[-5:]}")
-
             message = f"Minute OHLCV data for domestic stock fetched successfully for today."
             
         else: # Daily, Weekly, Monthly, Yearly for domestic
@@ -435,7 +424,7 @@ async def get_ohlcv_by_timeframe(ticker: str, timeframe: str):
                 "fid_org_adj_prc": "0" # 0: Adjusted price
             }
             data = await call_mcp_tool(MCP_STOCK_SERVER_URL, "domestic_stock", "inquire_daily_itemchartprice", params)
-            ohlcv_data = data[0].get("output2", [])
+            ohlcv_data = data.get("output2", [])
 
             current_calendar_year = today.year
             for item in ohlcv_data:
@@ -479,15 +468,14 @@ async def get_ohlcv_by_timeframe(ticker: str, timeframe: str):
                 }
                 data = await call_mcp_tool(MCP_STOCK_SERVER_URL, "overseas_stock", "dailyprice", params_monthly)
                 
-                if data[0] and data[0].get("output2"):
-                    monthly_ohlcv_data = data[0]["output2"]
+                if data and data.get("output2"):
+                    monthly_ohlcv_data = data["output2"]
                     found_exchange = exchange
                     break
             
             if not monthly_ohlcv_data:
                 message = f"Could not fetch monthly data for overseas stock '{ticker}' from any exchange. Yearly OHLCV cannot be generated."
             else:
-                logging.info(f"DEBUG: Raw monthly OHLCV data for {ticker}: {monthly_ohlcv_data}")
                 monthly_ohlcv_data.sort(key=lambda x: x.get('xymd', '')) # Sort ascending
 
                 yearly_ohlcv_aggregated = []
@@ -537,10 +525,8 @@ async def get_ohlcv_by_timeframe(ticker: str, timeframe: str):
                         yearly_ohlcv_aggregated[i]['date'] = f"{year_of_data}-12-31"
 
                 message = f"Yearly OHLCV data for overseas stock '{ticker}' generated from monthly data from {found_exchange}. Current year's data is included."
-                
                 processed_ohlcv = yearly_ohlcv_aggregated
-                logging.info(f"DEBUG: Aggregated yearly OHLCV data for {ticker}: {processed_ohlcv}")
-
+            
         elif timeframe in ['M', 'W', 'D']: # Monthly, Weekly, Daily for overseas
             gubn_map = {
                 'D': '0', 'W': '1', 'M': '2'
@@ -558,7 +544,7 @@ async def get_ohlcv_by_timeframe(ticker: str, timeframe: str):
                     "env_dv": "real"
                 }
                 data = await call_mcp_tool(MCP_STOCK_SERVER_URL, "overseas_stock", "dailyprice", params)
-                ohlcv_data = data[0].get("output2", [])
+                ohlcv_data = data.get("output2", [])
 
                 if ohlcv_data: # If data is found, process and return it
                     for item in ohlcv_data:
@@ -582,7 +568,7 @@ async def get_ohlcv_by_timeframe(ticker: str, timeframe: str):
             for exchange in ["NYS", "NAS", "AMS"]:
                 params = {"auth": "", "excd": exchange, "symb": ticker, "nmin": "1", "pinc": "1", "next": "", "nrec": "120", "fill": "", "keyb": ""}
                 data = await call_mcp_tool(MCP_STOCK_SERVER_URL, "overseas_stock", "inquire_time_itemchartprice", params)
-                page_data = data[0].get("output2", []) # data is a tuple (output, message)
+                page_data = data.get("output2", []) # data is a tuple (output, message)
                 if page_data:
                     all_ohlcv_data = page_data
                     found_exchange = exchange
@@ -616,20 +602,16 @@ async def get_current_price(ticker: str):
         for exchange in exchanges_to_try:
             params = {"auth": "", "excd": exchange, "symb": ticker, "env_dv": "real"}
             data = await call_mcp_tool(MCP_STOCK_SERVER_URL, "overseas_stock", "price", params)
-            if isinstance(data, list) and len(data) > 0 and data[0].get("last"):
-                return {"current_price": safe_float(data[0].get("last"))}
+            price_data = data.get("output1", [])
+            if price_data and isinstance(price_data, list) and price_data[0].get("last"):
+                return {"current_price": safe_float(price_data[0].get("last"))}
         return {"current_price": 0.0}
     else: # Domestic
         params = {"env_dv": "real", "fid_cond_mrkt_div_code": "J", "fid_input_iscd": ticker}
         data = await call_mcp_tool(MCP_STOCK_SERVER_URL, "domestic_stock", "inquire_price", params)
-        if isinstance(data[0], list) and len(data[0]) > 0:
-            output = data[0][0] # Assuming list of dicts, take first dict
-            if output:
-                return {"current_price": safe_float(output.get("stck_prpr"))}
-        elif isinstance(data[0], dict):
-            output = data[0].get("output", {})
-            if output:
-                return {"current_price": safe_float(output.get("stck_prpr"))}
+        output = data.get("output", {})
+        if output:
+            return {"current_price": safe_float(output.get("stck_prpr"))}
         return {"current_price": 0.0}
 
 @app.get("/stock/{ticker}")
@@ -643,9 +625,8 @@ async def get_stock_detail(ticker: str):
         for exchange in exchanges_to_try:
             price_params = {"auth": "", "excd": exchange, "symb": ticker}
             raw_data = await call_mcp_tool(MCP_STOCK_SERVER_URL, "overseas_stock", "price", price_params)
-            data_content = raw_data[0] # Get the actual data from the tuple
-            if isinstance(data_content, list) and len(data_content) > 0 and data_content[0].get("last"):
-                price_data = data_content
+            if isinstance(raw_data, list) and len(raw_data) > 0 and raw_data[0] and raw_data[0].get("last"):
+                price_data = raw_data
                 found_exchange = exchange
                 break
         
@@ -673,7 +654,7 @@ async def get_stock_detail(ticker: str):
         # Process daily_data to get high and low
         high_price = 0.0
         low_price = 0.0
-        ohlcv_data = daily_data[0].get("output2", [])
+        ohlcv_data = daily_data.get("output2", [])
         if isinstance(ohlcv_data, list) and len(ohlcv_data) > 0:
             latest_ohlcv = ohlcv_data[0]
             high_price = safe_float(latest_ohlcv.get("high"))
@@ -699,21 +680,12 @@ async def get_stock_detail(ticker: str):
             call_mcp_tool(MCP_STOCK_SERVER_URL, "domestic_stock", "search_stock_info", info_params)
         )
         
-        # Unpack the actual data from the tuples returned by call_mcp_tool
-        price_data_content = price_raw_result[0]
-        info_data_content = info_raw_result[0]
-
-        price_data = {}
-        if isinstance(price_data_content, list) and len(price_data_content) > 0:
-            price_data = price_data_content[0] # Assume the first item in the list is the price dict
-        elif isinstance(price_data_content, dict):
-            price_data = price_data_content.get("output", {}) # inquire_price wraps in "output"
-
+        price_data = price_raw_result.get("output", {})
+        
+        info_data_list = info_raw_result.get("output", [])
         info_data = {}
-        if isinstance(info_data_content, list) and len(info_data_content) > 0:
-            info_data = info_data_content[0] # Assume the first item in the list is the info dict
-        elif isinstance(info_data_content, dict):
-            info_data = info_data_content # search_stock_info returns the dict directly
+        if info_data_list and isinstance(info_data_list, list):
+            info_data = info_data_list[0]
 
         stock_name = info_data.get("prdt_abrv_name", ticker) if info_data else ticker
 
@@ -739,7 +711,6 @@ async def get_ranking_charts():
 async def get_us_market_cap_ranking():
     unique_stocks_map: Dict[str, Dict[str, Any]] = {}
     for excd in ["NYS", "NAS", "AMS"]:
-        logging.warning(f"Fetching market cap ranking from exchange: {excd} using inquire_search")
         params = {
             "auth": "",
             "excd": excd,
@@ -756,21 +727,19 @@ async def get_us_market_cap_ranking():
             "keyb": ""
         }
         data = await call_mcp_tool(MCP_STOCK_SERVER_URL, "overseas_stock", "inquire_search", params)
-        if data[0] and data[0].get("output2"):
+        if data and data.get("output2"):
             items_found_for_exchange = 0
-            for item in data[0]["output2"]:
+            for item in data["output2"]:
                 ticker = item.get("symb", "")
                 if ticker:
                     # The 'valx' field from inquire_search is market cap in thousands
                     item['market_cap'] = safe_float(item.get('valx', 0)) * 1000 # Convert to actual value
                     unique_stocks_map[ticker] = item # Use ticker as key to ensure uniqueness
                     items_found_for_exchange += 1
-            logging.warning(f"Found {items_found_for_exchange} items from {excd}. Current unique map size: {len(unique_stocks_map)}")
     
     all_stocks = list(unique_stocks_map.values())
     # Sort by market_cap in descending order
     sorted_stocks = sorted(all_stocks, key=lambda x: x.get('market_cap', 0), reverse=True)
-    logging.warning(f"Final unique stocks for market cap ranking: {len(sorted_stocks)} items.")
     return sorted_stocks
 
 @app.get("/check_mcp_connectivity")
