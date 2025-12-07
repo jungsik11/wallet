@@ -193,7 +193,7 @@ class _RankingScreenState extends State<RankingScreen> with AutomaticKeepAliveCl
             List<DataCell> cells = [];
 
             if (widget.selectedRankingType == 'top_gainers') {
-              cells.add(DataCell(Text('${index + 1}')));
+              cells.add(DataCell(Text('${index + 1}', style: TextStyle(fontSize: 12.0))));
             }
             
             cells.addAll([
@@ -204,7 +204,7 @@ class _RankingScreenState extends State<RankingScreen> with AutomaticKeepAliveCl
                       widget.onTickerSelected(ticker);
                     }
                   },
-                  child: Text(ticker ?? 'N/A'),
+                  child: Text(ticker ?? 'N/A', style: TextStyle(fontSize: 12.0)),
                 ),
               ),
               DataCell(
@@ -214,6 +214,7 @@ class _RankingScreenState extends State<RankingScreen> with AutomaticKeepAliveCl
                     stock['name'] ?? 'N/A',
                     maxLines: 2, // Allow text to wrap to 2 lines
                     overflow: TextOverflow.ellipsis, // Show ellipsis if text overflows 2 lines
+                    style: TextStyle(fontSize: 12.0),
                   ),
                 ),
               ),
@@ -222,7 +223,7 @@ class _RankingScreenState extends State<RankingScreen> with AutomaticKeepAliveCl
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Text(price),
+                    Text(price, style: TextStyle(fontSize: 12.0)),
                     if (widget.selectedRankingType == 'top_gainers') // Use widget.selectedRankingType
                       Text(
                         '(${double.tryParse(stock['diff']?.toString() ?? '')?.toStringAsFixed(2) ?? '0.00'}) ',
@@ -240,14 +241,14 @@ class _RankingScreenState extends State<RankingScreen> with AutomaticKeepAliveCl
                 DataCell(
                   Text(
                     '${rate.toStringAsFixed(2)}%',
-                    style: TextStyle(color: rate >= 0 ? Colors.green : Colors.red),
+                    style: TextStyle(color: rate >= 0 ? Colors.green : Colors.red, fontSize: 12.0),
                   ),
                 ),
               );
-              cells.add(DataCell(Text(_numberFormat.format(volume))));
+              cells.add(DataCell(Text(_numberFormat.format(volume), style: TextStyle(fontSize: 12.0))));
             } else { // 'market_cap'
               final String marketCap = formatMarketCap(stock['market_cap']);
-              cells.add(DataCell(Text(marketCap)));
+              cells.add(DataCell(Text(marketCap, style: TextStyle(fontSize: 12.0))));
             }
 
             return DataRow(cells: cells);
