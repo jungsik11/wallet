@@ -337,7 +337,7 @@ class _StockChartAndDetailsViewState extends State<StockChartAndDetailsView> {
                       for (int i = 0; i < _isSelected.length; i++) {
                         _isSelected[i] = i == index;
                       }
-                      _selectedTimeframe = ['T', 'D', 'W', 'M', 'Y'][index];
+                      _selectedTimeframe = ['T', 'H', 'D', 'M', 'Y'][index];
                       _fetchStockData();
                     });
                   },
@@ -350,8 +350,8 @@ class _StockChartAndDetailsViewState extends State<StockChartAndDetailsView> {
                   constraints: const BoxConstraints(minHeight: 36.0),
                   children: const <Widget>[
                     Padding(padding: EdgeInsets.symmetric(horizontal: 16.0), child: Text('1분')),
+                    Padding(padding: EdgeInsets.symmetric(horizontal: 16.0), child: Text('1시간')),
                     Padding(padding: EdgeInsets.symmetric(horizontal: 16.0), child: Text('1일')),
-                    Padding(padding: EdgeInsets.symmetric(horizontal: 16.0), child: Text('1주')),
                     Padding(padding: EdgeInsets.symmetric(horizontal: 16.0), child: Text('1달')),
                     Padding(padding: EdgeInsets.symmetric(horizontal: 16.0), child: Text('1년')),
                   ],
@@ -442,8 +442,10 @@ class _StockChartAndDetailsViewState extends State<StockChartAndDetailsView> {
       case 'T':
         format = DateFormat.Hm(); // HH:mm
         break;
-      case 'D':
-      case 'W':
+      case 'H': // New: 1 Hour
+        format = DateFormat.Hm(); // HH:mm
+        break;
+      case 'D': // New: 1 Day
         format = DateFormat.Md(); // MM/dd
         break;
       case 'M':
@@ -465,11 +467,11 @@ class _StockChartAndDetailsViewState extends State<StockChartAndDetailsView> {
       case 'T':
         type = DateTimeIntervalType.minutes;
         break;
-      case 'D':
-        type = DateTimeIntervalType.days;
+      case 'H': // New: 1 Hour
+        type = DateTimeIntervalType.hours;
         break;
-      case 'W':
-        type = DateTimeIntervalType.days; // Changed from weeks to days
+      case 'D': // New: 1 Day
+        type = DateTimeIntervalType.days;
         break;
       case 'M':
         type = DateTimeIntervalType.months;
