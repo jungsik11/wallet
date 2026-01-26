@@ -368,14 +368,19 @@ async def get_ohlcv_by_timeframe(ticker: str, timeframe: str):
         # KIS minute chart API for domestic requires end date in the future if current date is start date,
         # or can be current date if searching a past day. Let's use current date for simplicity.
         # For overseas minute, it requires start_date_time and close_date_time
+    elif timeframe == 'H': # Hourly data
+        start_date = today - timedelta(days=30) # Last 30 days for hourly data
+        inqr_strt_dt = start_date.strftime("%Y%m%d")
     else:
-        raise HTTPException(status_code=400, detail="Invalid timeframe. Choose from Y, M, W, D, T.")
+        raise HTTPException(status_code=400, detail="Invalid timeframe. Choose from Y, M, W, D, T, H.")
 
     processed_ohlcv = []
     message = "OHLCV data fetched successfully."
 
     if ticker.isdigit(): # Domestic Stock
-        if timeframe == 'T': # Minute data for domestic
+        if timeframe == 'H':
+            message = "Hourly OHLCV data is not supported for domestic stocks."
+        elif timeframe == 'T': # Minute data for domestic
             current_day_str = today.strftime("%Y%m%d")
             
             params = {
@@ -526,7 +531,36 @@ async def get_ohlcv_by_timeframe(ticker: str, timeframe: str):
 
                 message = f"Yearly OHLCV data for overseas stock '{ticker}' generated from monthly data from {found_exchange}. Current year's data is included."
                 processed_ohlcv = yearly_ohlcv_aggregated
+        
+        elif timeframe == 'H': # Hourly data for overseas
+            all_ohlcv_data = []
+            for exchange in ["NYS", "NAS", "AMS"]:
+                params = {"auth": "", "excd": exchange, "symb": ticker, "nmin": "60", "pinc": "1", "next": "", "nrec": "120", "fill": "", "keyb": ""}
+                data = await call_mcp_tool(MCP_STOCK_SERVER_URL, "overseas_stock", "inquire_time_itemchartprice", params)
+                page_data = data.get("output2", [])
+                if page_data:
+                    all_ohlcv_data = page_data
+                    found_exchange = exchange
+                    break
             
+            if all_ohlcv_data and safe_float(all_ohlcv_data[0].get("open")) == 0:
+                message = f"Overseas hourly OHLCV data for '{ticker}' is empty or invalid from {found_exchange}."
+            else:
+                for item in all_ohlcv_data:
+                    tymd = item.get('tymd')
+                    xhms = item.get('xhms')
+                    if tymd and xhms:
+                        dt_str = f"{tymd[:4]}-{tymd[4:6]}-{tymd[6:8]}T{xhms[:2]}:{xhms[2:4]}:{xhms[4:6]}"
+                        processed_ohlcv.append({
+                            "date": dt_str,
+                            "open": safe_float(item.get("open")),
+                            "high": safe_float(item.get("high")),
+                            "low": safe_float(item.get("low")),
+                            "close": safe_float(item.get("last")),
+                            "volume": safe_int(item.get("evol"))
+                        })
+                message = f"Hourly OHLCV data for overseas stock fetched successfully from {found_exchange}."
+
         elif timeframe in ['M', 'W', 'D']: # Monthly, Weekly, Daily for overseas
             gubn_map = {
                 'D': '0', 'W': '1', 'M': '2'

@@ -186,7 +186,7 @@ class _RankingScreenState extends State<RankingScreen> with AutomaticKeepAliveCl
           rows: _rankingData.asMap().entries.map((entry) {
                         int index = entry.key;
                         var stock = entry.value;
-                                                final ticker = stock['ticker'];            
+                        final ticker = stock['ticker'] ?? stock['symb'];
                                                 
                                                 // Safely parse values that might be String or num from the API
                         final String price = formatPrice(stock['price']);
@@ -257,4 +257,5 @@ class _RankingScreenState extends State<RankingScreen> with AutomaticKeepAliveCl
       ),
     );
   }
+
 }
