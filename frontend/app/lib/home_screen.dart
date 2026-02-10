@@ -36,7 +36,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
     final double krCurrentProfit = widget.krBalanceData
         .where((item) => item['currency'] == 'KRW') // Filter for KRW stocks
-        .fold<double>(0.0, (sum, item) => sum + ((item['profit_loss'] as double?) ?? 0.0));
+        .fold<double>(0.0, (sum, item) => sum + ((item['profit_loss'] as num?)?.toDouble() ?? 0.0));
 
     // Calculate total realized profit/loss for the very top display
     double totalRealizedProfitKrw = 0.0;
@@ -85,7 +85,7 @@ class _HomeScreenState extends State<HomeScreen> {
     // Add KR stocks
     for (var item in widget.krBalanceData) {
       if (item['currency'] == 'KRW' && item['market'] != 'CASH') { // Exclude cash entries
-        final double profitLossKrw = (item['profit_loss'] as double?) ?? 0.0;
+        final double profitLossKrw = (item['profit_loss'] as num?)?.toDouble() ?? 0.0;
         allStocksChartData.add(ChartData(item['name'] as String, profitLossKrw / 10000));
       }
     }

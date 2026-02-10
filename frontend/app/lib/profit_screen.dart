@@ -59,9 +59,16 @@ class _ProfitScreenState extends State<ProfitScreen> {
       
       final balanceDataForSelectedCountry = _selectedCountry == 'US' ? widget.usBalanceData : widget.krBalanceData;
 
-      final currentYearProfit = _selectedCountry == 'US' 
-          ? (usProfitDataForCurrentYear?['yearly_profit_usd'] as num?)?.toDouble() ?? 0.0
-          : (krProfitDataForCurrentYear?['yearly_profit_krw'] as num?)?.toDouble() ?? 0.0;
+      double currentYearProfit;
+      if (_selectedCountry == 'US') {
+        currentYearProfit = (usProfitDataForCurrentYear?['yearly_profit_usd'] as num?)?.toDouble() ?? 0.0;
+      } else {
+        double total = 0;
+        for (var stockMap in profitResponseForSelectedCountry.stocks) {
+          total += stockMap.values.first.yearlyProfit[currentYear] ?? 0.0;
+        }
+        currentYearProfit = total;
+      }
       
       final currencyUnit = _selectedCountry == 'KR' ? '(만원)' : '(USD)';
 
@@ -129,9 +136,7 @@ class _ProfitScreenState extends State<ProfitScreen> {
                               final profit = _selectedCountry == 'US'
                                   ? (yearData['yearly_profit_usd'] as num?)?.toDouble() ?? 0.0
                                   : (yearData['yearly_profit_krw'] as num?)?.toDouble() ?? 0.0;
-                              if (profit != 0.0) {
-                                combinedYearlyTotalProfit[year] = profit;
-                              }
+                              combinedYearlyTotalProfit[year] = profit;
 
                               // Still need to parse for stocks
                               final response = ProfitResponse.fromJson(yearData);
@@ -227,18 +232,18 @@ class _ProfitScreenState extends State<ProfitScreen> {
                     unrealizedPnl = (holding['profit_loss_usd'] as num?)?.toDouble() ?? 0.0;
                     currentPrice = (holding['current_price'] as num?)?.toDouble() ?? 0.0;
                     avgPrice = (holding['average_price'] as num?)?.toDouble() ?? 0.0;
-                    realizedPnl = (stockProfitData?.yearlyProfit['USD'] as num?)?.toDouble() ?? 0.0; // Changed to 'USD'
+                    realizedPnl = stockProfitData?.yearlyProfit[currentYear] ?? 0.0;
                   } else { // _selectedCountry == 'KR'
                     unrealizedPnl = (holding['profit_loss'] as num?)?.toDouble() ?? 0.0;
                     if (isUsdStock && widget.krExchangeRate != null) {
                       currentPrice = ((holding['current_price'] as num?)?.toDouble() ?? 0.0) * widget.krExchangeRate!;
                       avgPrice = ((holding['average_price'] as num?)?.toDouble() ?? 0.0) * widget.krExchangeRate!;
-                      realizedPnl = (stockProfitData?.yearlyProfit['KRW'] as num?)?.toDouble() ?? 0.0; // Changed to 'KRW'
+                      realizedPnl = stockProfitData?.yearlyProfit[currentYear] ?? 0.0;
                       realizedPnl = realizedPnl * widget.krExchangeRate!;
                     } else {
                       currentPrice = (holding['current_price'] as num?)?.toDouble() ?? 0.0;
                       avgPrice = (holding['average_price'] as num?)?.toDouble() ?? 0.0;
-                      realizedPnl = (stockProfitData?.yearlyProfit['KRW'] as num?)?.toDouble() ?? 0.0; // Changed to 'KRW'
+                      realizedPnl = stockProfitData?.yearlyProfit[currentYear] ?? 0.0;
                     }
                   }
 

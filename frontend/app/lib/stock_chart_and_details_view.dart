@@ -334,26 +334,41 @@ class _StockChartAndDetailsViewState extends State<StockChartAndDetailsView> {
                   isSelected: _isSelected,
                   onPressed: (int index) {
                     setState(() {
-                      for (int i = 0; i < _isSelected.length; i++) {
-                        _isSelected[i] = i == index;
-                      }
-                      _selectedTimeframe = ['T', 'H', 'D', 'M', 'Y'][index];
-                      _fetchStockData();
-                    });
-                  },
+                      final newTimeframe = ['T', 'H', 'D', 'M', 'Y'][index];
+                      // 국내 주식이고, '시간' (H)을 선택했을 경우
+                      // ticker가 6자리 숫자인 경우 국내 주식으로 판단
+                      if (RegExp(r'^\d{6}$').hasMatch(_currentDisplayTicker) && newTimeframe == 'H') {
+                        // 사용자에게 제한 사항을 알림
+                        _showErrorSnackbar('국내 주식은 1시간봉 데이터를 제공하지 않습니다. 1분봉으로 자동 전환됩니다.');
+ 
+                        // 1분봉으로 자동 전환 (인덱스 0이 'T'에 해당)
+                        for (int i = 0; i < _isSelected.length; i++) {
+                          _isSelected[i] = i == 0; // 'T' (분) 버튼을 선택된 상태로
+                          }
+                          _selectedTimeframe = 'T'; // 선택된 타임프레임을 'T'로 설정
+                         } else {
+                          // 그 외의 경우는 정상적으로 타임프레임 변경
+                          for (int i = 0; i < _isSelected.length; i++) {
+                            _isSelected[i] = i == index;
+                          }
+                          _selectedTimeframe = newTimeframe;
+                        }
+                        _fetchStockData();
+                      });
+                    },
                   color: theme.colorScheme.onSurface.withOpacity(0.7),
                   selectedColor: theme.colorScheme.onPrimary,
                   fillColor: theme.colorScheme.primary,
                   borderColor: theme.colorScheme.outline,
                   selectedBorderColor: theme.colorScheme.primary,
                   borderRadius: BorderRadius.circular(8),
-                  constraints: const BoxConstraints(minHeight: 36.0),
+                  constraints: BoxConstraints(minHeight: 36.0, minWidth: (MediaQuery.of(context).size.width - 32) / 7), 
                   children: const <Widget>[
-                    Padding(padding: EdgeInsets.symmetric(horizontal: 16.0), child: Text('1분')),
-                    Padding(padding: EdgeInsets.symmetric(horizontal: 16.0), child: Text('1시간')),
-                    Padding(padding: EdgeInsets.symmetric(horizontal: 16.0), child: Text('1일')),
-                    Padding(padding: EdgeInsets.symmetric(horizontal: 16.0), child: Text('1달')),
-                    Padding(padding: EdgeInsets.symmetric(horizontal: 16.0), child: Text('1년')),
+                    Text('분'),
+                    Text('시간'),
+                    Text('일'),
+                    Text('월'),
+                    Text('년'),
                   ],
                 ),
               ),

@@ -101,7 +101,7 @@ class _AssetStatusScreenState extends State<AssetStatusScreen> {
     double totalStockValuation;
 
     if (_selectedCurrency == 'KRW') {
-      totalCash = (cash['krw'] ?? 0).toDouble() + (cash['usd_in_krw'] ?? 0).toDouble();
+      totalCash = (cash['settled_krw'] ?? cash['krw'] ?? 0).toDouble() + (cash['usd_in_krw'] ?? 0).toDouble();
       totalStockValuation = stocks.fold<double>(0.0, (sum, stock) => sum + (stock['valuation'] as num).toDouble());
     } else { // USD
       totalCash = (cash['usd'] ?? 0.0).toDouble();
