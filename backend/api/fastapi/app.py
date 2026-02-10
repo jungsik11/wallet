@@ -149,8 +149,16 @@ async def get_account_balance(country: str = Query(None, description="Country co
         if data.get("output2"):
             summary = data.get("output2", [{}])[0]
 
+        # Calculate settled cash
+        evlu_amt_smtl = safe_int(summary.get("evlu_amt_smtl_amt"))
+        tot_evlu_amt = safe_int(summary.get("tot_evlu_amt"))
+        settled_cash = tot_evlu_amt - evlu_amt_smtl
+
         return {
-            "cash": {"krw": safe_int(summary.get("dnca_tot_amt"))},
+            "cash": {
+                "krw": safe_int(summary.get("dnca_tot_amt")), # 예수금
+                "settled_krw": settled_cash
+            },
             "stocks": [
                 {
                     "name": s.get("prdt_name"), "ticker": s.get("pdno"), "quantity": safe_int(s.get("hldg_qty")),
@@ -349,71 +357,160 @@ async def get_ohlcv_by_timeframe(ticker: str, timeframe: str):
     inqr_strt_dt = ""
     inqr_end_dt = today.strftime("%Y%m%d")
 
+    # Initialize end_dt as a datetime object for minute/hour calculations
+    try:
+        end_dt = datetime.strptime(inqr_end_dt, "%Y%m%d")
+    except ValueError:
+        end_dt = today # Fallback if parsing fails
+
     if timeframe == 'Y':
         start_date = datetime(today.year - 20, 1, 1) # Go back 20 years for yearly
         inqr_strt_dt = start_date.strftime("%Y%m%d")
     elif timeframe == 'M':
         start_date = today - timedelta(days=365 * 5) # Go back 5 years for monthly
         inqr_strt_dt = start_date.strftime("%Y%m%d")
-    elif timeframe == 'W':
-        start_date = today - timedelta(days=365 * 2) # Go back 2 years for weekly
-        inqr_strt_dt = start_date.strftime("%Y%m%d")
     elif timeframe == 'D':
         start_date = today - timedelta(days=365) # Go back 1 year for daily
         inqr_strt_dt = start_date.strftime("%Y%m%d")
     elif timeframe == 'T': # Minute data
-        # For minute data, typically a shorter range is used, e.g., last few days
-        start_date = today - timedelta(days=7) # Last 7 days for minute data
-        inqr_strt_dt = start_date.strftime("%Y%m%d")
-        # KIS minute chart API for domestic requires end date in the future if current date is start date,
-        # or can be current date if searching a past day. Let's use current date for simplicity.
-        # For overseas minute, it requires start_date_time and close_date_time
+        # For domestic minute data, KIS API 'inquire_time_itemchartprice' is for a single day.
+        # We will use inqr_end_dt (which defaults to today) as the target date for minute data.
+        pass
     elif timeframe == 'H': # Hourly data
-        start_date = today - timedelta(days=30) # Last 30 days for hourly data
-        inqr_strt_dt = start_date.strftime("%Y%m%d")
+        # For domestic hourly data, we will aggregate minute data for a single day (inqr_end_dt).
+        pass
     else:
-        raise HTTPException(status_code=400, detail="Invalid timeframe. Choose from Y, M, W, D, T, H.")
+        raise HTTPException(status_code=400, detail="Invalid timeframe. Choose from Y, M, D, T, H.")
 
     processed_ohlcv = []
     message = "OHLCV data fetched successfully."
 
     if ticker.isdigit(): # Domestic Stock
-        if timeframe == 'H':
-            message = "Hourly OHLCV data is not supported for domestic stocks."
-        elif timeframe == 'T': # Minute data for domestic
-            current_day_str = today.strftime("%Y%m%d")
+        if timeframe == 'H': # Hourly data for domestic
+            target_date_str = end_dt.strftime("%Y%m%d")
             
+            minute_data = await call_mcp_tool(
+                MCP_STOCK_SERVER_URL, "domestic_stock", "inquire_time_dailychartprice", # API 변경
+                {
+                    "fid_cond_mrkt_div_code": "J",
+                    "fid_input_iscd": ticker,
+                    "fid_input_hour_1": "090000", # 오전 9시부터 데이터를 요청
+                    "fid_input_date_1": target_date_str, # 날짜 파라미터 추가
+                    "fid_pw_data_incu_yn": "N",
+                    # "fid_etc_cls_code": "", # 이 파라미터는 inquire_time_dailychartprice에서 사용되지 않음
+                }
+            )
+            print(f"Raw minute data from KIS for ticker {ticker} on {target_date_str}: {minute_data}")
+            minute_data_for_day = minute_data.get("output2", [])
+            
+            hourly_candles: Dict[datetime, Dict[str, Any]] = {}
+            for item in minute_data_for_day:
+                cntg_hour_str = item.get("stck_cntg_hour")
+                # Use actual OHLC values from minute data
+                minute_open = safe_float(item.get("stck_oprc"))
+                minute_high = safe_float(item.get("stck_hgpr"))
+                minute_low = safe_float(item.get("stck_lwpr"))
+                minute_close = safe_float(item.get("stck_prpr")) # Use stck_prpr as the minute's closing price
+                trade_volume = safe_int(item.get("cntg_vol"))
+
+                if not cntg_hour_str:
+                    continue
+
+                current_candle_dt = datetime.strptime(f"{target_date_str}{cntg_hour_str}", "%Y%m%d%H%M%S")
+
+                hour_start = current_candle_dt.replace(minute=0, second=0, microsecond=0)
+
+                if hour_start not in hourly_candles:
+                    hourly_candles[hour_start] = {
+                        "date": hour_start.isoformat(timespec='seconds'),
+                        "open": minute_open, # Use the actual open of the first minute in this hour
+                        "high": minute_high,
+                        "low": minute_low,
+                        "close": minute_close,
+                        "volume": trade_volume
+                    }
+                else:
+                    hourly_candles[hour_start]["high"] = max(hourly_candles[hour_start]["high"], minute_high) # Use minute_high
+                    hourly_candles[hour_start]["low"] = min(hourly_candles[hour_start]["low"], minute_low)   # Use minute_low
+                    hourly_candles[hour_start]["close"] = minute_close # Last minute's close is hourly close
+                    hourly_candles[hour_start]["volume"] += trade_volume
+            
+            processed_ohlcv = sorted(hourly_candles.values(), key=lambda x: x['date'])
+            message = f"Domestic hourly OHLCV data for {target_date_str} fetched and aggregated successfully."
+
+        elif timeframe == 'T': # Minute data for domestic
+            target_date_str = end_dt.strftime("%Y%m%d")
+            params = {
+                "env_dv": "real", # `inquire_time_itemchartprice`는 이 파라미터를 받음
+                "fid_cond_mrkt_div_code": "J", # Always KRX for domestic stocks
+                "fid_input_iscd": ticker,
+                "fid_input_hour_1": "000000",  # Start from midnight to get all minute data for the day
+                "fid_pw_data_incu_yn": "N",  # Do not include past data (as we are querying for a specific day)
+                "fid_etc_cls_code": "", # `inquire_time_itemchartprice`는 이 파라미터를 받음
+            }
+
+            data = await call_mcp_tool(MCP_STOCK_SERVER_URL, "domestic_stock", "inquire_time_itemchartprice", params) # API 복구
+            ohlcv_data = data.get("output2", [])
+
+            if isinstance(ohlcv_data, list):
+                for item in ohlcv_data:
+                    if isinstance(item, dict):
+                        cntg_hour = item.get("stck_cntg_hour")
+                        if cntg_hour:
+                            dt_str = f"{target_date_str[:4]}-{target_date_str[4:6]}-{target_date_str[6:8]}T{cntg_hour[:2]}:{cntg_hour[2:4]}:{cntg_hour[4:6]}"
+                            trade_price = safe_float(item.get("stck_prpr"))
+                            trade_volume = safe_int(item.get("cntg_vol"))
+
+                            processed_ohlcv.append({
+                                "date": dt_str,
+                                "open": safe_float(item.get("stck_oprc")),
+                                "high": safe_float(item.get("stck_hgpr")),
+                                "low": safe_float(item.get("stck_lwpr")),
+                                "close": safe_float(item.get("stck_prpr")),
+                                "volume": trade_volume
+                            })
+            processed_ohlcv.sort(key=lambda x: x.get('date'))
+            message = f"Domestic minute OHLCV data for {target_date_str} fetched successfully."
+            
+        else: # Daily, Weekly, Monthly, Yearly for domestic
+            period_map = {
+                'Y': 'Y', 'M': 'M', 'W': 'W', 'D': 'D'
+            }
+            fid_period_div_code = period_map.get(timeframe, 'D')
+
             params = {
                 "env_dv": "real",
                 "fid_cond_mrkt_div_code": "J",
                 "fid_input_iscd": ticker,
-                "fid_input_hour_1": "090000", # Standard market open time
-                "fid_pw_data_incu_yn": "Y",    # Include pre-market data
-                "fid_etc_cls_code": ""
+                "fid_input_date_1": inqr_strt_dt,
+                "fid_input_date_2": inqr_end_dt,
+                "fid_period_div_code": fid_period_div_code,
+                "fid_org_adj_prc": "0"
             }
-            
-            data = await call_mcp_tool(MCP_STOCK_SERVER_URL, "domestic_stock", "inquire_time_itemchartprice", params)
+            data = await call_mcp_tool(MCP_STOCK_SERVER_URL, "domestic_stock", "inquire_daily_itemchartprice", params)
             ohlcv_data = data.get("output2", [])
 
-            processed_ohlcv = []
+            current_calendar_year = today.year
             for item in ohlcv_data:
-                # Ensure date and time are correctly formatted
-                cntg_hour = item.get("stck_cntg_hour")
-                if cntg_hour:
-                    # KIS API returns cntg_hour as HHMMSS, combine with current_day_str for full datetime
-                    dt_str = f"{current_day_str}T{cntg_hour[:2]}:{cntg_hour[2:4]}:{cntg_hour[4:6]}"
-                    processed_ohlcv.append({
-                        "date": dt_str,
-                        "open": safe_float(item.get("stck_oprc")),
-                        "high": safe_float(item.get("stck_hgpr")),
-                        "low": safe_float(item.get("stck_lwpr")),
-                        "close": safe_float(item.get("stck_clpr")), # Use stck_clpr for close price
-                        "volume": safe_int(item.get("acml_vol"))
-                    })
-            
-            message = f"Minute OHLCV data for domestic stock fetched successfully for today."
-            
-        else: # Daily, Weekly, Monthly, Yearly for domestic
+                item_date_str = item.get("stck_bsop_date")
+                year_of_data = int(item_date_str[:4])
+                
+                if timeframe == 'Y' and year_of_data < current_calendar_year:
+                    formatted_date = f"{year_of_data}-12-31"
+                elif timeframe == 'Y' and year_of_data == current_calendar_year:
+                    formatted_date = today.strftime("%Y-%m-%d")
+                else:
+                    formatted_date = f"{item_date_str[:4]}-{item_date_str[4:6]}-{item_date_str[6:8]}"
+
+                processed_ohlcv.append({
+                    "date": formatted_date,
+                    "open": safe_float(item.get("stck_oprc")),
+                    "high": safe_float(item.get("stck_hgpr")),
+                    "low": safe_float(item.get("stck_lwpr")),
+                    "close": safe_float(item.get("stck_clpr")),
+                    "volume": safe_int(item.get("acml_vol"))
+                })
+            message = f"{timeframe} OHLCV data for domestic stock fetched successfully."
             period_map = {
                 'Y': 'Y', 'M': 'M', 'W': 'W', 'D': 'D'
             }
@@ -582,8 +679,10 @@ async def get_ohlcv_by_timeframe(ticker: str, timeframe: str):
 
                 if ohlcv_data: # If data is found, process and return it
                     for item in ohlcv_data:
+                        item_date_str = item.get("xymd")
+                        formatted_date = f"{item_date_str[:4]}-{item_date_str[4:6]}-{item_date_str[6:8]}"
                         processed_ohlcv.append({
-                            "date": item.get("xymd"),
+                            "date": formatted_date,
                             "open": safe_float(item.get("open")),
                             "high": safe_float(item.get("high")),
                             "low": safe_float(item.get("low")),
@@ -628,6 +727,7 @@ async def get_ohlcv_by_timeframe(ticker: str, timeframe: str):
             
     processed_ohlcv.sort(key=lambda x: x.get('date')) # Ensure ascending order by date
     return {"data": processed_ohlcv, "message": message}
+
 
 @app.get("/current_price/{ticker}")
 async def get_current_price(ticker: str):
@@ -714,12 +814,70 @@ async def get_stock_detail(ticker: str):
             call_mcp_tool(MCP_STOCK_SERVER_URL, "domestic_stock", "search_stock_info", info_params)
         )
         
-        price_data = price_raw_result.get("output", {})
+        # Defensively extract price_data
+        price_data = {}
         
-        info_data_list = info_raw_result.get("output", [])
+        # Determine the effective data source from price_raw_result
+        # This handles cases where price_raw_result is a dict (expected after utils.py fix)
+        # or a list (if utils.py fix is not active, or MCP returns a bare list directly)
+        effective_data_source = None
+
+        if isinstance(price_raw_result, dict):
+            # If it's a dict, check for 'output' or 'data_list' keys
+            if "output" in price_raw_result:
+                effective_data_source = price_raw_result["output"]
+            elif "data_list" in price_raw_result: # This would be from utils.py fix
+                effective_data_source = price_raw_result["data_list"]
+        elif isinstance(price_raw_result, list):
+            # If price_raw_result itself is a list (utils.py fix not active or bare list from MCP)
+            effective_data_source = price_raw_result
+
+        # Process the determined data source
+        if effective_data_source:
+            if isinstance(effective_data_source, list) and effective_data_source:
+                # Assuming the first item in the list is the relevant stock price data dictionary
+                if isinstance(effective_data_source[0], dict):
+                    price_data = effective_data_source[0]
+                else:
+                    logging.warning(f"Effective data source is a list but its first item is not a dictionary: {effective_data_source}")
+            elif isinstance(effective_data_source, dict):
+                price_data = effective_data_source
+            else:
+                logging.warning(f"Effective data source is neither a dictionary nor a list as expected: {effective_data_source}")
+        else:
+            logging.warning(f"Could not determine effective data source from price_raw_result: {price_raw_result}")
+            
+        # If price_data is still empty, it means we couldn't parse the data as expected
+        if not price_data:
+             raise HTTPException(status_code=500, detail="Failed to parse price data from API response or response was empty.")
+        
+        # Defensively extract info_data
         info_data = {}
-        if info_data_list and isinstance(info_data_list, list):
-            info_data = info_data_list[0]
+        effective_info_source = None
+
+        if isinstance(info_raw_result, dict):
+            if "output" in info_raw_result:
+                effective_info_source = info_raw_result["output"]
+            elif "data_list" in info_raw_result:
+                effective_info_source = info_raw_result["data_list"]
+        elif isinstance(info_raw_result, list):
+            effective_info_source = info_raw_result
+
+        if effective_info_source:
+            if isinstance(effective_info_source, list) and effective_info_source:
+                if isinstance(effective_info_source[0], dict):
+                    info_data = effective_info_source[0]
+                else:
+                    logging.warning(f"Effective info source is a list but its first item is not a dictionary: {effective_info_source}")
+            elif isinstance(effective_info_source, dict):
+                info_data = effective_info_source
+            else:
+                logging.warning(f"Effective info source is neither a dictionary nor a list as expected: {effective_info_source}")
+        else:
+            logging.warning(f"Could not determine effective info source from info_raw_result: {info_raw_result}")
+            
+        if not info_data:
+            raise HTTPException(status_code=500, detail="Failed to parse info data from API response or response was empty.")
 
         stock_name = info_data.get("prdt_abrv_name", ticker) if info_data else ticker
 

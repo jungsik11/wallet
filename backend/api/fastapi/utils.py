@@ -36,17 +36,24 @@ async def call_mcp_tool(server_url: str, tool_name: str, api_type: str, params: 
                 response_text = result.content[0].text
                 outer_json_response = loads(response_text)
                 
-                # Check for the structure with 'ok' and a nested 'data' field containing another JSON string
-                if outer_json_response.get("ok") and "data" in outer_json_response and isinstance(outer_json_response["data"], dict):
-                    if outer_json_response["data"].get("success") is False:
-                        logging.error(f"MCP tool reported failure. Full outer_json_response: {outer_json_response}")
-                    
-                    if "data" in outer_json_response["data"] and isinstance(outer_json_response["data"]["data"], str):
-                        inner_json_string = outer_json_response["data"]["data"]
-                        return loads(inner_json_string) # Parse the inner JSON string
-                    else:
-                        # If it's not the double-encoded format, return the outer parsed JSON directly
-                        return outer_json_response
+                # Check for the structure with 'ok' and a nested 'data' field
+                if outer_json_response.get("ok") and "data" in outer_json_response:
+                    data_payload = outer_json_response["data"]
+                    if isinstance(data_payload, dict) and "data" in data_payload and isinstance(data_payload["data"], str):
+                        # Case: Double-encoded JSON (data field contains a JSON string)
+                        return loads(data_payload["data"])
+                    elif isinstance(data_payload, dict):
+                        # Case: Data payload is a direct dictionary
+                        return data_payload
+                    elif isinstance(data_payload, list):
+                        # Case: Data payload is a list. Wrap it in a dictionary for consistency.
+                        logging.warning(f"MCP tool '{tool_name}' returned a list as direct data payload. Wrapping in 'data_list' key. Payload: {data_payload}")
+                        return {"data_list": data_payload}
+                
+                # If 'ok' is false, or 'data' is missing/not as expected
+                logging.error(f"MCP tool '{tool_name}' returned unexpected response structure: {outer_json_response}")
+                raise ValueError("Unexpected response structure from MCP tool.")
+
         except Exception as e:
             logging.error(f"Error calling MCP tool '{tool_name}' on attempt {attempt + 1}: {e}")
             if attempt < max_retries - 1:
@@ -54,3 +61,5 @@ async def call_mcp_tool(server_url: str, tool_name: str, api_type: str, params: 
             else:
                 traceback.print_exc()
                 raise HTTPException(status_code=500, detail=f"Error calling MCP tool '{tool_name}' after {max_retries} attempts: {e}")
+    # This part should ideally not be reached if exceptions are always raised
+    return {} # Default return for type hinting and safety
