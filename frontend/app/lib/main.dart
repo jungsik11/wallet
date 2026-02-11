@@ -67,6 +67,9 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
         _selectedIndex = _tabController.index;
       });
     });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _tabController.animateTo(0, duration: Duration.zero);
+    });
     _fetchData();
   }
 
@@ -127,9 +130,6 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
       
       bottomNavigationBar: Builder( // Use Builder to get a new context for MediaQuery
         builder: (BuildContext innerContext) {
-          final double screenWidth = MediaQuery.of(innerContext).size.width;
-          final double tabWidth = screenWidth / 10; // Adjust to show more tabs
-
           return Material(
             color: Theme.of(innerContext).colorScheme.surface,
             elevation: 8.0,
@@ -139,14 +139,17 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
               labelColor: Theme.of(innerContext).colorScheme.primary,
               unselectedLabelColor: Theme.of(innerContext).colorScheme.onSurface.withOpacity(0.6),
               indicatorColor: Theme.of(innerContext).colorScheme.primary,
+              indicator: const BoxDecoration(),
+              splashFactory: NoSplash.splashFactory, // Disable splash effect
+              overlayColor: MaterialStateProperty.all(Colors.transparent), // Disable highlight effect
               tabs: [
-                SizedBox(width: tabWidth, child: const Tab(icon: Icon(Icons.home), text: '홈')),
-                SizedBox(width: tabWidth, child: const Tab(icon: Icon(Icons.bar_chart), text: '주식 상세')),
-                SizedBox(width: tabWidth, child: const Tab(icon: Icon(Icons.account_balance_wallet), text: '자산/연금')),
-                SizedBox(width: tabWidth, child: const Tab(icon: Icon(Icons.trending_up), text: '수익 현황')),
-                SizedBox(width: tabWidth, child: const Tab(icon: Icon(Icons.more_horiz), text: '더미 1')),
-                SizedBox(width: tabWidth, child: const Tab(icon: Icon(Icons.more_horiz), text: '더미 2')),
-                SizedBox(width: tabWidth, child: const Tab(icon: Icon(Icons.more_horiz), text: '더미 3')),
+                const Tab(icon: Icon(Icons.home), text: '홈'),
+                const Tab(icon: Icon(Icons.bar_chart), text: '주식 상세'),
+                const Tab(icon: Icon(Icons.account_balance_wallet), text: '자산/연금'),
+                const Tab(icon: Icon(Icons.trending_up), text: '수익 현황'),
+                const Tab(icon: Icon(Icons.more_horiz), text: '더미 1'),
+                const Tab(icon: Icon(Icons.more_horiz), text: '더미 2'),
+                const Tab(icon: Icon(Icons.more_horiz), text: '더미 3'),
               ],
             ),
           );
@@ -154,7 +157,7 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
       ),
       body: TabBarView(
         controller: _tabController,
-        physics: const AlwaysScrollableScrollPhysics(), // Added this line
+        physics: const NeverScrollableScrollPhysics(), // Added this line
         children: [
           _buildHomeTab(),
           // New Stock Detail Screen (moved)
