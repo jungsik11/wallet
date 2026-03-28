@@ -1,0 +1,25 @@
+안녕하세요.
+
+현재 환율이 1.0으로 표시되는 문제와 이전에 발생했던 `UnicodeEncodeError`는 `kis_devlp.yaml` 파일에 설정된 계좌 정보(예: `my_acct_stock`, `my_acct_future`, `my_paper_stock`, `my_paper_future`, `my_htsid`)에 한글과 같은 비ASCII 문자가 포함되어 있기 때문일 가능성이 매우 높습니다.
+
+`kis_auth.py` 파일은 API 요청을 보낼 때 이 정보를 사용하며, 특정 상황에서 `latin-1` 인코딩을 시도할 때 한글 문자를 처리하지 못해 오류가 발생합니다.
+
+**해결 방법:**
+
+`backend/api/open-trading-api/kis_devlp.yaml` 파일을 열어서 다음 필드들의 값을 실제 계좌 번호나 HTS ID와 같이 **ASCII 문자(영문, 숫자)로만 구성된 값으로 변경**해 주십시오.
+
+*   `my_app`
+*   `my_sec`
+*   `paper_app`
+*   `paper_sec`
+*   `my_htsid`
+*   `my_acct_stock`
+*   `my_acct_future`
+*   `my_paper_stock`
+*   `my_paper_future`
+
+예를 들어, `my_acct_stock: "증권계좌 8자리"` 대신 `my_acct_stock: "12345678"`과 같이 변경해야 합니다.
+
+이 파일을 수정한 후, 다시 한번 환율을 가져오거나 미국 주식 잔고를 확인하는 작업을 시도해 보겠습니다.
+
+파일 수정 후 알려주시면 다음 단계를 진행하겠습니다.

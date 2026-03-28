@@ -1,0 +1,20 @@
+Symbol,Name,AssetClass
+069500,KODEX 200,Stock
+133690,TIGER 미국나스닥100,Stock
+143850,TIGER 미국S&P500,Stock
+371460,TIGER 차이나전기차SOLACTIVE,Stock
+360750,TIGER 미국테크TOP10 INDXX,Stock
+091160,KODEX 반도체,Stock
+305720,KODEX 2차전지산업,Stock
+364980,TIGER 컴퓨터소프트웨어,Stock
+229200,KODEX 코스닥150,Stock
+314250,KODEX 미국러셀2000(H),Stock
+114260,KODEX 국고채3년,Bond
+152380,KODEX 국고채10년,Bond
+273130,KODEX 종합채권(AA-이상)액티브,Bond
+153130,KODEX 단기채권,Bond
+132030,KODEX 골드선물(H),Commodity
+144600,KODEX 은선물(H),Commodity
+138910,KODEX 구리선물(H),Commodity
+130680,TIGER 원유선물Enhanced(H),Commodity
+261240,KODEX 미국달러선물,Dollar
