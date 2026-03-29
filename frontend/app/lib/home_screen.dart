@@ -42,7 +42,8 @@ class _HomeScreenState extends State<HomeScreen> {
     double totalRealizedProfitKrw = 0.0;
     Map<String, double> yearlyCombinedProfitRaw = {}; // Store raw KRW values for yearly combined profit
 
-    for (int year = 2021; year <= 2025; year++) {
+    final int currentYearInt = DateTime.now().year;
+    for (int year = 2021; year <= currentYearInt; year++) {
       final String yearStr = year.toString();
       double usProfitForYear = (widget.usProfitData[yearStr]?['yearly_profit_usd'] as num?)?.toDouble() ?? 0.0;
       double krProfitForYear = (widget.krProfitData[yearStr]?['yearly_profit_krw'] as num?)?.toDouble() ?? 0.0;
@@ -61,12 +62,12 @@ class _HomeScreenState extends State<HomeScreen> {
     // Calculate cumulative profit for the very top display
     final double displayCumulativeProfit = displayTotalRealizedProfit + displayTotalUnrealizedProfit;
 
-    // Add current unrealized profit to the current year (2025) in the yearly table
-    final String currentYear = DateTime.now().year.toString();
-    if (yearlyCombinedProfitRaw.containsKey(currentYear)) {
-      yearlyCombinedProfitRaw[currentYear] = (yearlyCombinedProfitRaw[currentYear] ?? 0.0) + displayTotalUnrealizedProfit;
+    // Add current unrealized profit to the current year in the yearly table
+    final String currentYearStr = currentYearInt.toString();
+    if (yearlyCombinedProfitRaw.containsKey(currentYearStr)) {
+      yearlyCombinedProfitRaw[currentYearStr] = (yearlyCombinedProfitRaw[currentYearStr] ?? 0.0) + displayTotalUnrealizedProfit;
     } else {
-      yearlyCombinedProfitRaw[currentYear] = displayTotalUnrealizedProfit;
+      yearlyCombinedProfitRaw[currentYearStr] = displayTotalUnrealizedProfit;
     }
     
     List<String> sortedYears = yearlyCombinedProfitRaw.keys.toList()..sort();
@@ -107,6 +108,7 @@ class _HomeScreenState extends State<HomeScreen> {
       body: RefreshIndicator(
         onRefresh: widget.onRefresh,
         child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(), // Added to enable pull-to-refresh always
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [

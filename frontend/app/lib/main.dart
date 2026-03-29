@@ -1,21 +1,15 @@
 import 'package:flutter/material.dart';
 
 
-import 'package:http/http.dart' as http;
-import 'dart:convert';
-import 'package:intl/intl.dart';
 import 'package:app/asset_status_screen.dart';
 import 'package:app/profit_screen.dart';
 import 'package:app/pension_screen.dart';
 import 'package:app/presentation/app_theme.dart';
-import 'package:app/constants/api_constants.dart';
 import 'package:app/services/wallet_api_service.dart';
-import 'package:app/chatbot_screen.dart'; // Add this line
+import 'package:app/chatbot_screen.dart';
 import 'package:app/home_screen.dart';
-import 'package:app/ranking_screen.dart';
-import 'package:app/stock_tab_content.dart'; // Add this line
-import 'package:app/stock_chart_and_details_view.dart';
-import 'package:app/current_price_screen.dart';
+import 'package:app/stock_tab_content.dart';
+import 'package:app/ra_portfolio_screen.dart';
 
 
 void main() {
@@ -46,7 +40,6 @@ class MyHomePage extends StatefulWidget {
 
 class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateMixin {
   late TabController _tabController;
-  int _selectedIndex = 0; // Add this line
   Map<String, Map<String, dynamic>>? _usProfitData; // Map of year to profit data
   Map<String, dynamic>? _usBalanceData;
   double? _usExchangeRate;
@@ -62,11 +55,6 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
   void initState() {
     super.initState();
     _tabController = TabController(length: 7, vsync: this);
-    _tabController.addListener(() {
-      setState(() {
-        _selectedIndex = _tabController.index;
-      });
-    });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _tabController.animateTo(0, duration: Duration.zero);
     });
@@ -95,16 +83,16 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
       ]);
 
       // Process results
-      _usProfitData = (results[0] as Map<String, dynamic>).map(
+      _usProfitData = results[0].map(
         (key, value) => MapEntry(key, value as Map<String, dynamic>),
       );
-      _krProfitData = (results[1] as Map<String, dynamic>).map(
+      _krProfitData = results[1].map(
         (key, value) => MapEntry(key, value as Map<String, dynamic>),
       );
       
-      final allBalanceData = results[2] as Map<String, dynamic>;
-      _usBalanceData = allBalanceData['us_balance_data'] as Map<String, dynamic>;
-      _krBalanceData = allBalanceData['kr_balance_data'] as Map<String, dynamic>;
+      final allBalanceData = results[2];
+      _usBalanceData = allBalanceData['us_balance_data'];
+      _krBalanceData = allBalanceData['kr_balance_data'];
       _pensionBalanceData = allBalanceData['pension_balance_data'] as Map<String, dynamic>;
       
       _usExchangeRate = (_usBalanceData!['exchange_rate'] as num?)?.toDouble();
@@ -147,7 +135,7 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
                 const Tab(icon: Icon(Icons.bar_chart), text: '주식 상세'),
                 const Tab(icon: Icon(Icons.account_balance_wallet), text: '자산/연금'),
                 const Tab(icon: Icon(Icons.trending_up), text: '수익 현황'),
-                const Tab(icon: Icon(Icons.more_horiz), text: '더미 1'),
+                const Tab(icon: Icon(Icons.smart_toy), text: '로보어드바이저'),
                 const Tab(icon: Icon(Icons.more_horiz), text: '더미 2'),
                 const Tab(icon: Icon(Icons.more_horiz), text: '더미 3'),
               ],
@@ -171,8 +159,9 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
           ),
           // 수익 현황 탭
           _buildProfitTab(),
+          // Robo Advisor Portfolio Tab
+          const RaPortfolioScreen(),
           // New dummy tabs
-          Center(child: Text('Dummy Tab 1')),
           Center(child: Text('Dummy Tab 2')),
           Center(child: Text('Dummy Tab 3')),
         ],

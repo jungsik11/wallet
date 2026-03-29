@@ -84,4 +84,13 @@ class WalletApiService {
       throw Exception('Failed to load current price for $ticker: ${response.statusCode}');
     }
   }
+
+  Future<Map<String, dynamic>> fetchRaPortfolio() async {
+    final response = await http.get(Uri.parse('${ApiConstants.baseUrl}/ra/portfolio'));
+    if (response.statusCode == 200) {
+      return jsonDecode(utf8.decode(response.bodyBytes));
+    } else {
+      throw Exception('Failed to load RA portfolio: ${response.statusCode}');
+    }
+  }
 }

@@ -1,39 +1,23 @@
-"""
-FastAPI application for providing stock and pension data from the Korea Investment & Securities (KIS) API,
-now using the KIS Trade MCP server.
-"""
-
-# --- Imports ---
-
 import os
 import traceback
+import logging
+import asyncio
 from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Any, Dict, List, Optional
-import logging
-from ranking_chart_service import get_ranked_stocks
 
-from dotenv import load_dotenv
+import pandas as pd
+import numpy as np
+import yfinance as yf
 from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel
-import asyncio
-
-from utils import call_mcp_tool, MCP_STOCK_SERVER_URL, MCP_PENSION_SERVER_URL, StockHolding, ProfitResponse
-
-# --- Helper Functions ---
-
-# --- Imports ---
-
-import os
-import traceback
-from datetime import datetime, timedelta
-from decimal import Decimal
-from typing import Any, Dict, List, Optional
-import logging
-from ranking_chart_service import get_ranked_stocks
-
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Query
+from fastmcp import Client
+import FinanceDataReader as fdr
+
+from ranking_chart_service import get_ranked_stocks
+from utils import call_mcp_tool, MCP_STOCK_SERVER_URL, MCP_PENSION_SERVER_URL, StockHolding, ProfitResponse
+from ra.mpt import ModernPortfolioTheory
 from pydantic import BaseModel
 import asyncio
 
@@ -63,6 +47,38 @@ load_dotenv()
 
 # Initialize FastAPI app
 app = FastAPI(title="Profit Calculation API")
+
+async def get_kr_risk_free_rate() -> float:
+    """
+    Fetches the current Korean 3-Year Treasury Bond yield.
+    Fallback to 3.59% as of March 2026 if live data is unavailable.
+    """
+    # 3.59% is the recent yield for KR 3Y Treasury Bond as of March 2026
+    fallback_rate = 0.0359
+    
+    try:
+        # Tickers for KR 3Y Bond yield often change or are blocked
+        # KR3YT=RR (Yahoo), KRDR1Y3 (BOK), etc.
+        for code in ['KR3YT=RR', 'KRDR1Y3', '010170000']:
+            try:
+                df = fdr.DataReader(code)
+                if df is not None and not df.empty:
+                    # Some sources return yield as percentage (e.g., 3.59)
+                    latest_yield = float(df.iloc[-1]['Close'])
+                    if latest_yield > 10: # Likely basis points
+                        return latest_yield / 10000.0
+                    elif latest_yield > 0.1: # Likely percentage
+                        return latest_yield / 100.0
+                    return latest_yield
+            except Exception as e:
+                logging.warning(f"Failed to fetch KR bond yield for code {code}: {e}")
+                continue
+
+        logging.warning(f"All KR bond yield fetch attempts failed. Using fallback: {fallback_rate * 100}%")
+        return fallback_rate
+    except Exception as e:
+        logging.error(f"Unexpected error in get_kr_risk_free_rate: {e}")
+        return fallback_rate
 
 
 
@@ -933,6 +949,168 @@ async def get_us_market_cap_ranking():
     # Sort by market_cap in descending order
     sorted_stocks = sorted(all_stocks, key=lambda x: x.get('market_cap', 0), reverse=True)
     return sorted_stocks
+
+async def _perform_optimization(
+    tickers: List[str],
+    days: int = 365,
+    risk_free_rate: Optional[float] = None
+):
+    """
+    Internal helper to perform MPT optimization.
+    """
+    # Fetch risk-free rate if not provided
+    used_rf_rate = risk_free_rate
+    if used_rf_rate is None:
+        used_rf_rate = await get_kr_risk_free_rate()
+        logging.info(f"Automatically fetched KR Risk-Free Rate: {used_rf_rate}")
+
+    # Use yesterday's close for stability throughout the day
+    end_date = datetime.now() - timedelta(days=1)
+    start_date = end_date - timedelta(days=days)
+    
+    # Download historical data
+    logging.info(f"Fetching data for tickers: {tickers}")
+    data_raw = yf.download(
+        tickers, 
+        start=start_date.strftime("%Y-%m-%d"), 
+        end=end_date.strftime("%Y-%m-%d"), 
+        threads=False
+    )
+    
+    if data_raw.empty:
+        raise HTTPException(status_code=404, detail="No historical data found for the given tickers and period.")
+        
+    # Extract closing prices
+    if len(tickers) == 1:
+        data = data_raw['Close'].to_frame()
+    else:
+        # Handle potential MultiIndex columns if multiple tickers are fetched
+        if isinstance(data_raw.columns, pd.MultiIndex):
+            data = data_raw['Close']
+        else:
+            data = data_raw['Close']
+    
+    # Drop columns with all NaNs and tickers with insufficient data
+    data = data.dropna(axis=1, how='all')
+    if data.empty:
+        raise HTTPException(status_code=404, detail="Data found but all records are invalid (NaN).")
+
+    # Calculate daily returns
+    daily_returns = data.pct_change().dropna()
+    if len(daily_returns) < 2:
+        raise HTTPException(status_code=400, detail="Insufficient data points to calculate returns and covariance.")
+
+    # Annualize expected returns (252 trading days)
+    expected_returns = daily_returns.mean() * 252
+    
+    # Annualize covariance matrix
+    cov_matrix = daily_returns.cov() * 252
+    
+    # Initialize MPT Optimizer
+    mpt = ModernPortfolioTheory(expected_returns, cov_matrix)
+    
+    # Perform Optimizations
+    sharpe_weights = mpt.optimize_max_sharpe(risk_free_rate=used_rf_rate)
+    min_vol_weights = mpt.optimize_min_volatility()
+    
+    # Calculate metrics for Max Sharpe Portfolio
+    sharpe_ret = mpt.get_portfolio_return(sharpe_weights.values)
+    sharpe_vol = np.sqrt(mpt.get_portfolio_variance(sharpe_weights.values))
+    sharpe_ratio = (sharpe_ret - used_rf_rate) / (sharpe_vol + 1e-9)
+    
+    # Calculate metrics for Min Volatility Portfolio
+    min_vol_ret = mpt.get_portfolio_return(min_vol_weights.values)
+    min_vol_vol = np.sqrt(mpt.get_portfolio_variance(min_vol_weights.values))
+    min_vol_sharpe = (min_vol_ret - used_rf_rate) / (min_vol_vol + 1e-9)
+
+    return {
+        "max_sharpe": {
+            "weights": sharpe_weights.to_dict(),
+            "return": float(sharpe_ret),
+            "volatility": float(sharpe_vol),
+            "sharpe_ratio": float(sharpe_ratio)
+        },
+        "min_volatility": {
+            "weights": min_vol_weights.to_dict(),
+            "return": float(min_vol_ret),
+            "volatility": float(min_vol_vol),
+            "sharpe_ratio": float(min_vol_sharpe)
+        },
+        "risk_free_rate": used_rf_rate,
+        "period": {
+            "start": start_date.strftime("%Y-%m-%d"),
+            "end": end_date.strftime("%Y-%m-%d"),
+            "days": days
+        }
+    }
+
+@app.get("/ra/optimize")
+async def optimize_portfolio(
+    tickers: List[str] = Query(..., description="List of tickers to optimize"),
+    days: int = Query(365, description="Number of historical days to fetch"),
+    risk_free_rate: Optional[float] = Query(None, description="Risk-free rate (decimal). If None, fetches KR 3Y Bond Yield.")
+):
+    """
+    Optimizes a portfolio of given tickers using Modern Portfolio Theory (MPT).
+    """
+    try:
+        return await _perform_optimization(tickers, days, risk_free_rate)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Error in /ra/optimize: {str(e)}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"Optimization failed: {str(e)}")
+
+@app.get("/ra/portfolio")
+async def get_recommended_portfolio():
+    """
+    Returns a globally diversified recommended portfolio including KR ETFs.
+    """
+    # Define a mix of US stocks and KR ETFs
+    # .KS suffix is used for KOSPI stocks/ETFs in yfinance
+    default_tickers = [
+        'AAPL', 'MSFT', 'NVDA', # US Tech
+        '069500.KS', # KODEX 200 (KR Market)
+        '133690.KS', # TIGER US Nasdaq 100 (Global Tech)
+        '143850.KS', # TIGER US S&P 500 (US Market)
+        '114260.KS', # KODEX KR Treasury Bond 3Y (KR Bond)
+        '132030.KS', # KODEX Gold Futures (Commodity)
+        '261240.KS'  # KODEX USD Futures (Currency)
+    ]
+    
+    # Mapping for display names
+    ticker_names = {
+        'AAPL': 'Apple',
+        'MSFT': 'Microsoft',
+        'NVDA': 'NVIDIA',
+        '069500.KS': 'KODEX 200 (국내주식)',
+        '133690.KS': 'TIGER 미국나스닥100',
+        '143850.KS': 'TIGER 미국S&P500',
+        '114260.KS': 'KODEX 국고채3년 (국내채권)',
+        '132030.KS': 'KODEX 골드선물',
+        '261240.KS': 'KODEX 미국달러선물'
+    }
+
+    try:
+        result = await _perform_optimization(default_tickers, days=365)
+        
+        # Replace ticker keys with friendly names in the weights
+        for strategy in ['max_sharpe', 'min_volatility']:
+            weights = result[strategy]['weights']
+            new_weights = {}
+            for ticker, weight in weights.items():
+                name = ticker_names.get(ticker, ticker)
+                new_weights[name] = weight
+            result[strategy]['weights'] = new_weights
+            
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Error in /ra/portfolio: {str(e)}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"Failed to load recommended portfolio: {str(e)}")
+
+
 
 @app.get("/check_mcp_connectivity")
 async def check_mcp_connectivity():

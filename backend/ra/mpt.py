@@ -30,6 +30,8 @@ class ModernPortfolioTheory:
         
     def _generate_random_portfolios(self):
         """Vectorized generation of random portfolio weights, returns, and volatilities."""
+        # Set seed for deterministic results
+        np.random.seed(42)
         # Generate random weights and row-normalize to sum to 1
         weights = np.random.random((self.num_portfolios, self.num_assets))
         weights = weights / np.sum(weights, axis=1)[:, np.newaxis]
