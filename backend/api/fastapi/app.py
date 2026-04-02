@@ -1,6 +1,8 @@
 import os
 import traceback
+print("GLOBAL: App starting...")
 import logging
+logging.basicConfig(level=logging.ERROR, format='%(asctime)s [%(levelname)s] %(message)s')
 import asyncio
 from datetime import datetime, timedelta
 from decimal import Decimal
@@ -48,37 +50,195 @@ load_dotenv()
 # Initialize FastAPI app
 app = FastAPI(title="Profit Calculation API")
 
-async def get_kr_risk_free_rate() -> float:
+async def get_kr_risk_free_rate_v2() -> float:
+    import sys
+    sys.stdout.write("!!! FUNCTION ENTERED !!!\n")
+    print("!!! FUNCTION ENTERED !!!")
+    logging.error("!!! FUNCTION ENTERED !!!")
     """
     Fetches the current Korean 3-Year Treasury Bond yield.
-    Fallback to 3.59% as of March 2026 if live data is unavailable.
+    Priority 1: FRED Source (KORINT3YRT156N) - Most stable yield data.
+    Priority 2: Investing.com (KR3YT=RR) - Includes fallback for Price data (e.g., 94.1).
+    Validation: Must be in range 1.0% - 10.0%.
     """
-    # 3.59% is the recent yield for KR 3Y Treasury Bond as of March 2026
-    fallback_rate = 0.0359
+    logging.error("\n[DEBUG] --- Fetching KR Risk-Free Rate ---")
+    
+    # 0. Source: KIS MCP (Primary - Official Real-time Data)
+    try:
+        from utils import call_mcp_tool, MCP_STOCK_SERVER_URL
+        # KIS Domestic Indicator Symbol for 3Y KTB Yield: KORPT038
+        # fid_cond_mrkt_div_code: U (Index/Indicator)
+        params = {
+            "fid_cond_mrkt_div_code": "U",  # Indicators/Indices
+            "fid_input_iscd": "KORPT038",    # KTB 3Y Yield symbol
+            "tr_cont": ""                   # Required by KIS API
+        }
+        print(f"[DEBUG] [KIS MCP] Requesting KORPT038 (3Y KTB Yield) via domestic_stock.inquire_index_price from {MCP_STOCK_SERVER_URL}", flush=True)
+        # Note: Using inquire_index_price as it's the correct tool for indicators in the MCP server
+        res = await call_mcp_tool(MCP_STOCK_SERVER_URL, "domestic_stock", "inquire_index_price", params)
+        print(f"[DEBUG] [KIS MCP] Response for KORPT038: {res}", flush=True)
+        
+        if isinstance(res, dict) and 'output' in res:
+            # Indicator price (yield) is in bstp_nmix_prpr for index prices
+            yield_str = res['output'].get('bstp_nmix_prpr') or res['output'].get('stck_prpr')
+            if yield_str:
+                rate_val = float(yield_str)
+                # KIS usually returns percentage (e.g., 3.38). Convert to decimal.
+                rate = rate_val / 100.0 if 0.1 <= rate_val <= 10.0 else rate_val
+                if 0.01 <= rate <= 0.10:
+                    print(f"[DEBUG] [KIS MCP] Successfully fetched yield: {rate:.4f} (Symbol: KORPT038)", flush=True)
+                    return rate
+                else:
+                    print(f"[DEBUG] [KIS MCP] Yield out of bounds: {rate_val}", flush=True)
+        elif isinstance(res, dict) and 'output1' in res: # Alternative KIS structure
+            yield_str = res['output1'].get('bstp_nmix_prpr') or res['output1'].get('stck_prpr')
+            if yield_str:
+                rate_val = float(yield_str)
+                rate = rate_val / 100.0 if 0.1 <= rate_val <= 10.0 else rate_val
+                if 0.01 <= rate <= 0.10:
+                    print(f"[DEBUG] [KIS MCP] Successfully fetched yield from output1: {rate:.4f}", flush=True)
+                    return rate
+        else:
+            keys_info = list(res.keys()) if isinstance(res, dict) else f"Not a dict (type: {type(res)})"
+            print(f"[DEBUG] [KIS MCP] No usable output returned for KORPT038. Info: {keys_info}, Res: {res}", flush=True)
+    except Exception as e:
+        print(f"[DEBUG] [KIS MCP] fetch failed: {str(e)}", flush=True)
+        import traceback
+        traceback.print_exc()
+
+    # 1. Source: FRED (Fallback 1)
+    try:
+        df_fred = fdr.DataReader('KORINT3YRT156N', data_source='fred')
+        if df_fred is not None and not df_fred.empty:
+            raw_val = float(df_fred.iloc[-1].values[0])
+            # FRED usually provides percentage (e.g., 3.38)
+            rate = raw_val / 100.0 if raw_val > 0.1 else raw_val
+            if 0.01 <= rate <= 0.10:
+                print(f"[DEBUG] [FRED] Successfully fetched yield: {rate:.4f} (Source: KORINT3YRT156N)")
+                return rate
+    except Exception as e:
+        print(f"[DEBUG] [FRED] Error: {e}")
+
+    # 2. Source: Investing.com (Supports Price-to-Yield calculation)
+    sources = [('KR3YT=RR', 'Investing.com'), ('KTB3Y', 'FDR-KTB')]
+    for code, name in sources:
+        try:
+            df = fdr.DataReader(code)
+            if df is not None and not df.empty:
+                latest_val = float(df.iloc[-1]['Close'])
+                print(f"[DEBUG] [{name}] Raw value from {code}: {latest_val}")
+
+                # CASE A: Price Data (e.g., 94.1)
+                # If the value is in the 80-120 range, it's a price. Calculate YTM.
+                if 80.0 <= latest_val <= 120.0:
+                    P = latest_val / 100.0 # Standardize to face value 1.0
+                    C = 0.01125 # Assumption: Benchmark Coupon 1.125%
+                    n = 2.6     # Assumption: Remaining maturity 2.6 years
+                    # YTM = (Coupon + (Par - Price)/Tenor) / ((Par + Price)/2)
+                    ytm = (C + (1.0 - P) / n) / ((1.0 + P) / 2.0)
+                    print(f"[DEBUG] [{name}] Detected Price {latest_val}. Calculated YTM: {ytm:.4f}")
+                    if 0.01 <= ytm <= 0.10:
+                        return ytm
+                
+                # CASE B: Yield Data (e.g., 3.38 or 338 bps)
+                candidate = 0.0
+                if latest_val > 200: # Basis Points
+                    candidate = latest_val / 10000.0
+                elif latest_val > 0.1: # Percentage
+                    candidate = latest_val / 100.0
+                else: # Decimal
+                    candidate = latest_val
+                
+                if 0.01 <= candidate <= 0.10:
+                    print(f"[DEBUG] [{name}] Accepted Yield: {candidate:.4f}")
+                    return candidate
+
+        except Exception as e:
+            print(f"[DEBUG] [{name}] Error fetching {code}: {e}")
+            continue
+
+    # Fallback: Current verified market yield
+    fallback_rate = 0.0338 
+    print(f"[DEBUG] [CONFIRM_CODE_VERSION_1] All sources failed. Using specific fallback: {fallback_rate:.4f}")
+    return fallback_rate
+
+# --- Asset Helpers ---
+
+def get_mapping_from_universe() -> Dict[str, str]:
+    """Loads ticker-to-name mapping from the universe CSV."""
+    try:
+        csv_path = os.path.join(os.path.dirname(__file__), 'ra', 'kr_etfs_universe.csv')
+        df = pd.read_csv(csv_path)
+        # Ensure Symbol is string and padded with zeros if necessary
+        df['Symbol'] = df['Symbol'].astype(str).str.zfill(6)
+        return dict(zip(df['Symbol'], df['Name']))
+    except Exception as e:
+        logging.error(f"Error loading universe mapping: {e}")
+        return {}
+
+def get_display_name(ticker: str, mapping: Dict[str, str]) -> str:
+    """Returns the descriptive name for a ticker if available, otherwise the ticker itself."""
+    clean_ticker = ticker.split('.')[0] # Remove .KS, .KQ if present
+    return mapping.get(clean_ticker, ticker)
+
+async def fetch_asset_history(ticker: str, days: int = 365) -> pd.Series:
+    """
+    Fetches historical closing prices for a single asset using KIS MCP.
+    Falls back to yfinance for US stocks if KIS fails.
+    """
+    today = datetime.now()
+    start_date = today - timedelta(days=days)
+    inqr_strt_dt = start_date.strftime("%Y%m%d")
+    inqr_end_dt = today.strftime("%Y%m%d")
+
+    clean_ticker = ticker.split('.')[0]
     
     try:
-        # Tickers for KR 3Y Bond yield often change or are blocked
-        # KR3YT=RR (Yahoo), KRDR1Y3 (BOK), etc.
-        for code in ['KR3YT=RR', 'KRDR1Y3', '010170000']:
-            try:
-                df = fdr.DataReader(code)
-                if df is not None and not df.empty:
-                    # Some sources return yield as percentage (e.g., 3.59)
-                    latest_yield = float(df.iloc[-1]['Close'])
-                    if latest_yield > 10: # Likely basis points
-                        return latest_yield / 10000.0
-                    elif latest_yield > 0.1: # Likely percentage
-                        return latest_yield / 100.0
-                    return latest_yield
-            except Exception as e:
-                logging.warning(f"Failed to fetch KR bond yield for code {code}: {e}")
-                continue
-
-        logging.warning(f"All KR bond yield fetch attempts failed. Using fallback: {fallback_rate * 100}%")
-        return fallback_rate
+        if clean_ticker.isdigit(): # Domestic Stock
+            params = {
+                "env_dv": "real",
+                "fid_cond_mrkt_div_code": "J",
+                "fid_input_iscd": clean_ticker,
+                "fid_input_date_1": inqr_strt_dt,
+                "fid_input_date_2": inqr_end_dt,
+                "fid_period_div_code": "D",
+                "fid_org_adj_prc": "0"
+            }
+            data = await call_mcp_tool(MCP_STOCK_SERVER_URL, "domestic_stock", "inquire_daily_itemchartprice", params)
+            ohlcv_list = data.get("output2", [])
+            if not ohlcv_list:
+                return pd.Series(dtype=float)
+            
+            dates = [datetime.strptime(item["stck_bsop_date"], "%Y%m%d") for item in ohlcv_list]
+            prices = [safe_float(item["stck_clpr"]) for item in ohlcv_list]
+            return pd.Series(data=prices, index=pd.DatetimeIndex(dates), name=ticker).sort_index()
+        
+        else: # Overseas Stock
+            exchanges = ["NAS", "NYS", "AMS"]
+            for ex in exchanges:
+                params = {
+                    "auth": "", "excd": ex, "symb": clean_ticker,
+                    "gubn": "0", "bymd": inqr_end_dt, "modp": "0", "env_dv": "real"
+                }
+                try:
+                    data = await call_mcp_tool(MCP_STOCK_SERVER_URL, "overseas_stock", "dailyprice", params)
+                    ohlcv_list = data.get("output2", [])
+                    if ohlcv_list:
+                        dates = [datetime.strptime(item["xymd"], "%Y%m%d") for item in ohlcv_list]
+                        prices = [safe_float(item["clos"]) for item in ohlcv_list]
+                        return pd.Series(data=prices, index=pd.DatetimeIndex(dates), name=ticker).sort_index()
+                except Exception:
+                    continue
+            
+            # Final fallback to yfinance for US stocks
+            df = yf.download(ticker, start=start_date, end=today, progress=False)
+            if not df.empty:
+                return df['Close']
+            
     except Exception as e:
-        logging.error(f"Unexpected error in get_kr_risk_free_rate: {e}")
-        return fallback_rate
+        logging.error(f"Error fetching history for {ticker}: {e}")
+    
+    return pd.Series(dtype=float)
 
 
 
@@ -952,109 +1112,135 @@ async def get_us_market_cap_ranking():
 
 async def _perform_optimization(
     tickers: List[str],
-    days: int = 365,
-    risk_free_rate: Optional[float] = None
-):
+    display_mapping: Optional[Dict[str, str]] = None,
+    days: int = 365
+) -> Dict[str, Any]:
     """
     Internal helper to perform MPT optimization.
+    Always fetches historical prices from KIS MCP (with YF fallback for US).
     """
-    # Fetch risk-free rate if not provided
-    used_rf_rate = risk_free_rate
-    if used_rf_rate is None:
-        used_rf_rate = await get_kr_risk_free_rate()
-        logging.info(f"Automatically fetched KR Risk-Free Rate: {used_rf_rate}")
+    used_rf_rate = await get_kr_risk_free_rate_v2()
+    logging.info(f"Using dynamically fetched KR Risk-Free Rate: {used_rf_rate}")
 
-    # Use yesterday's close for stability throughout the day
-    end_date = datetime.now() - timedelta(days=1)
-    start_date = end_date - timedelta(days=days)
+    # Fetch historical data for all tickers in parallel
+    logging.info(f"Fetching historical data for {len(tickers)} tickers via KIS MCP/YF")
+    history_tasks = [fetch_asset_history(t, days=days) for t in tickers]
+    histories = await asyncio.gather(*history_tasks)
     
-    # Download historical data
-    logging.info(f"Fetching data for tickers: {tickers}")
-    data_raw = yf.download(
-        tickers, 
-        start=start_date.strftime("%Y-%m-%d"), 
-        end=end_date.strftime("%Y-%m-%d"), 
-        threads=False
-    )
+    # Combine into a single DataFrame
+    prices_df = pd.concat(histories, axis=1)
     
-    if data_raw.empty:
-        raise HTTPException(status_code=404, detail="No historical data found for the given tickers and period.")
+    if prices_df.empty:
+        raise HTTPException(status_code=404, detail="No historical data found for the given tickers.")
         
-    # Extract closing prices
-    if len(tickers) == 1:
-        data = data_raw['Close'].to_frame()
-    else:
-        # Handle potential MultiIndex columns if multiple tickers are fetched
-        if isinstance(data_raw.columns, pd.MultiIndex):
-            data = data_raw['Close']
-        else:
-            data = data_raw['Close']
+    prices_df = prices_df.sort_index()
+
+    # Calculate daily returns (handles NaNs per-column automatically)
+    daily_returns = prices_df.pct_change()
     
-    # Drop columns with all NaNs and tickers with insufficient data
-    data = data.dropna(axis=1, how='all')
-    if data.empty:
-        raise HTTPException(status_code=404, detail="Data found but all records are invalid (NaN).")
-
-    # Calculate daily returns
-    daily_returns = data.pct_change().dropna()
-    if len(daily_returns) < 2:
-        raise HTTPException(status_code=400, detail="Insufficient data points to calculate returns and covariance.")
-
-    # Annualize expected returns (252 trading days)
+    # Filter out assets with no data at all
+    valid_cols = daily_returns.columns[~daily_returns.isna().all()]
+    if valid_cols.empty:
+        raise HTTPException(status_code=400, detail="No assets have valid return data.")
+    
+    daily_returns = daily_returns[valid_cols]
+    
+    # Annualize expected returns and covariance
+    # note: mean() and cov() handle NaNs by ignoring them in each pair/column
     expected_returns = daily_returns.mean() * 252
-    
-    # Annualize covariance matrix
     cov_matrix = daily_returns.cov() * 252
     
-    # Initialize MPT Optimizer
-    mpt = ModernPortfolioTheory(expected_returns, cov_matrix)
+    # Ensure cov_matrix is positive semi-definite (add tiny epsilon if needed)
+    # This helps with stability in near-zero volatility cases
+    cov_matrix += np.eye(len(cov_matrix)) * 1e-8
+
+    async def run_two_pass_optimization(target_type: str) -> Dict[str, float]:
+        """Runs 1st pass to discover assets, 2nd pass to enforce strict 1% min weight."""
+        # Pass 1: discovery (0% to 23%)
+        mpt_all = ModernPortfolioTheory(expected_returns, cov_matrix)
+        if target_type == "max_sharpe":
+            weights_p1 = mpt_all.optimize_max_sharpe(risk_free_rate=used_rf_rate, min_weight=0.0, max_weight=0.23)
+        else:
+            weights_p1 = mpt_all.optimize_min_volatility(min_weight=0.0, max_weight=0.23)
+            
+        # Select assets with >= 1% weight
+        selected_tickers = [t for t, w in weights_p1.items() if w >= 0.01]
+        
+        if not selected_tickers:
+            # Fallback: take top 5 assets by weight if 1% threshold is too strict
+            selected_tickers = weights_p1.sort_values(ascending=False).head(5).index.tolist()
+
+        # Pass 2: Re-optimize on selected subset with strict 1% floor
+        sub_returns = expected_returns[selected_tickers]
+        sub_cov = cov_matrix.loc[selected_tickers, selected_tickers]
+        mpt_sub = ModernPortfolioTheory(sub_returns, sub_cov)
+        
+        if target_type == "max_sharpe":
+            weights_final = mpt_sub.optimize_max_sharpe(risk_free_rate=used_rf_rate, min_weight=0.01, max_weight=0.23)
+        else:
+            weights_final = mpt_sub.optimize_min_volatility(min_weight=0.01, max_weight=0.23)
+            
+        return weights_final.to_dict()
+
+    # Optimized weights
+    sharpe_weights_raw = await run_two_pass_optimization("max_sharpe")
+    min_vol_weights_raw = await run_two_pass_optimization("min_volatility")
     
-    # Perform Optimizations
-    sharpe_weights = mpt.optimize_max_sharpe(risk_free_rate=used_rf_rate)
-    min_vol_weights = mpt.optimize_min_volatility()
-    
-    # Calculate metrics for Max Sharpe Portfolio
-    sharpe_ret = mpt.get_portfolio_return(sharpe_weights.values)
-    sharpe_vol = np.sqrt(mpt.get_portfolio_variance(sharpe_weights.values))
-    sharpe_ratio = (sharpe_ret - used_rf_rate) / (sharpe_vol + 1e-9)
-    
-    # Calculate metrics for Min Volatility Portfolio
-    min_vol_ret = mpt.get_portfolio_return(min_vol_weights.values)
-    min_vol_vol = np.sqrt(mpt.get_portfolio_variance(min_vol_weights.values))
-    min_vol_sharpe = (min_vol_ret - used_rf_rate) / (min_vol_vol + 1e-9)
+    def map_weights(raw_weights: Dict[str, float]) -> Dict[str, float]:
+        if not display_mapping:
+            return raw_weights
+        return {display_mapping.get(t, t): w for t, w in raw_weights.items()}
+
+    def get_metrics(weights_dict: Dict[str, float]):
+        w_arr = np.array(list(weights_dict.values()))
+        indices = [expected_returns.index.get_loc(t) for t in weights_dict.keys()]
+        sub_returns = expected_returns.values[indices]
+        sub_cov = cov_matrix.values[np.ix_(indices, indices)]
+        
+        p_ret = np.sum(sub_returns * w_arr)
+        # Handle tiny negative variances due to float precision
+        var = w_arr.T @ (sub_cov @ w_arr)
+        p_vol = np.sqrt(max(var, 1e-10)) 
+        p_sharpe = (p_ret - used_rf_rate) / p_vol
+        return p_ret, p_vol, p_sharpe
+
+    sharpe_ret, sharpe_vol, sharpe_ratio = get_metrics(sharpe_weights_raw)
+    min_vol_ret, min_vol_vol, min_vol_sharpe = get_metrics(min_vol_weights_raw)
 
     return {
         "max_sharpe": {
-            "weights": sharpe_weights.to_dict(),
+            "weights": map_weights(sharpe_weights_raw),
             "return": float(sharpe_ret),
             "volatility": float(sharpe_vol),
             "sharpe_ratio": float(sharpe_ratio)
         },
         "min_volatility": {
-            "weights": min_vol_weights.to_dict(),
+            "weights": map_weights(min_vol_weights_raw),
             "return": float(min_vol_ret),
             "volatility": float(min_vol_vol),
             "sharpe_ratio": float(min_vol_sharpe)
         },
         "risk_free_rate": used_rf_rate,
         "period": {
-            "start": start_date.strftime("%Y-%m-%d"),
-            "end": end_date.strftime("%Y-%m-%d"),
             "days": days
-        }
+        },
+        "asset_count": len(valid_cols)
     }
 
 @app.get("/ra/optimize")
 async def optimize_portfolio(
     tickers: List[str] = Query(..., description="List of tickers to optimize"),
-    days: int = Query(365, description="Number of historical days to fetch"),
-    risk_free_rate: Optional[float] = Query(None, description="Risk-free rate (decimal). If None, fetches KR 3Y Bond Yield.")
+    days: int = Query(365, description="Number of historical days to fetch")
 ):
     """
-    Optimizes a portfolio of given tickers using Modern Portfolio Theory (MPT).
+    Optimizes a portfolio of given tickers.
+    Automatically maps tickers to Korean names using universe CSV.
     """
+    universe_mapping = get_mapping_from_universe()
+    display_mapping = {t: get_display_name(t, universe_mapping) for t in tickers}
+
     try:
-        return await _perform_optimization(tickers, days, risk_free_rate)
+        return await _perform_optimization(tickers, display_mapping=display_mapping, days=days)
     except HTTPException:
         raise
     except Exception as e:
@@ -1064,51 +1250,94 @@ async def optimize_portfolio(
 @app.get("/ra/portfolio")
 async def get_recommended_portfolio():
     """
-    Returns a globally diversified recommended portfolio including KR ETFs.
+    Returns a portfolio by combining both domestic (KR) and international (US) universes.
+    Always uses Korean names for KR stocks and tickers for US stocks.
     """
-    # Define a mix of US stocks and KR ETFs
-    # .KS suffix is used for KOSPI stocks/ETFs in yfinance
-    default_tickers = [
-        'AAPL', 'MSFT', 'NVDA', # US Tech
-        '069500.KS', # KODEX 200 (KR Market)
-        '133690.KS', # TIGER US Nasdaq 100 (Global Tech)
-        '143850.KS', # TIGER US S&P 500 (US Market)
-        '114260.KS', # KODEX KR Treasury Bond 3Y (KR Bond)
-        '132030.KS', # KODEX Gold Futures (Commodity)
-        '261240.KS'  # KODEX USD Futures (Currency)
+    all_tickers = []
+    display_mapping = {}
+    
+    # Load mappings
+    universe_mapping = get_mapping_from_universe()
+
+    # Robust path resolution for Local vs Docker
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    potential_ra_dirs = [
+        os.path.join(current_dir, "ra"), # Docker structure
     ]
     
-    # Mapping for display names
-    ticker_names = {
-        'AAPL': 'Apple',
-        'MSFT': 'Microsoft',
-        'NVDA': 'NVIDIA',
-        '069500.KS': 'KODEX 200 (국내주식)',
-        '133690.KS': 'TIGER 미국나스닥100',
-        '143850.KS': 'TIGER 미국S&P500',
-        '114260.KS': 'KODEX 국고채3년 (국내채권)',
-        '132030.KS': 'KODEX 골드선물',
-        '261240.KS': 'KODEX 미국달러선물'
-    }
+    ra_dir = None
+    for d in potential_ra_dirs:
+        if os.path.exists(d) and os.path.isdir(d):
+            ra_dir = d
+            break
+            
+    if not ra_dir:
+        logging.error(f"Universe data directory 'ra/' not found")
+        raise HTTPException(status_code=500, detail="Universe data directory missing.")
+
+    # 1. Load KR ETF Universe
+    try:
+        kr_path = os.path.join(ra_dir, 'kr_etfs_universe.csv')
+        if os.path.exists(kr_path):
+            df_kr = pd.read_csv(kr_path)
+            for _, row in df_kr.iterrows():
+                symbol = str(row['Symbol']).zfill(6)
+                all_tickers.append(symbol)
+                display_mapping[symbol] = row['Name']
+    except Exception as e:
+        logging.error(f"Failed to load KR universe: {e}")
+
+    # 2. Load US Stock Universe ($1T+)
+    try:
+        us_path = os.path.join(ra_dir, 'us_stocks_1T_universe.csv')
+        if os.path.exists(us_path):
+            df_us = pd.read_csv(us_path)
+            for _, row in df_us.iterrows():
+                ticker = str(row['Ticker'])
+                all_tickers.append(ticker)
+                display_mapping[ticker] = ticker
+    except Exception as e:
+        logging.error(f"Failed to load US universe: {e}")
+
+    if not all_tickers:
+        raise HTTPException(status_code=404, detail="No universe assets found.")
 
     try:
-        result = await _perform_optimization(default_tickers, days=365)
-        
-        # Replace ticker keys with friendly names in the weights
-        for strategy in ['max_sharpe', 'min_volatility']:
-            weights = result[strategy]['weights']
-            new_weights = {}
-            for ticker, weight in weights.items():
-                name = ticker_names.get(ticker, ticker)
-                new_weights[name] = weight
-            result[strategy]['weights'] = new_weights
-            
-        return result
+        return await _perform_optimization(all_tickers, display_mapping=display_mapping, days=365)
     except HTTPException:
         raise
     except Exception as e:
-        logging.error(f"Error in /ra/portfolio: {str(e)}\n{traceback.format_exc()}")
-        raise HTTPException(status_code=500, detail=f"Failed to load recommended portfolio: {str(e)}")
+        logging.error(f"Error in /ra/portfolio calculation: {str(e)}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"Failed to generate recommended portfolio: {str(e)}")
+
+
+
+@app.get("/check_mcp_connectivity")
+async def check_mcp_connectivity():
+    """
+    Checks connectivity to the MCP stock and pension servers.
+    """
+    results = {}
+
+    # Check stock MCP server
+    try:
+        async with Client(f"{MCP_STOCK_SERVER_URL}/sse") as client:
+            # Attempt to make a dummy call or just connect
+            # A simple connection attempt is enough to check if the server is reachable
+            results["stock_mcp_connectivity"] = "Connected"
+    except Exception as e:
+        results["stock_mcp_connectivity"] = f"Failed to connect: {e}"
+        logging.error(f"Stock MCP connectivity check failed: {e}")
+
+    # Check pension MCP server
+    try:
+        async with Client(f"{MCP_PENSION_SERVER_URL}/sse") as client:
+            results["pension_mcp_connectivity"] = "Connected"
+    except Exception as e:
+        results["pcp_mcp_connectivity"] = f"Failed to connect: {e}"
+        logging.error(f"Pension MCP connectivity check failed: {e}")
+
+    return results
 
 
 

@@ -34,14 +34,22 @@ async def call_mcp_tool(server_url: str, tool_name: str, api_type: str, params: 
             async with Client(f"{server_url}/sse") as client:
                 result = await client.call_tool(tool_name, {"api_type": api_type, "params": params})
                 response_text = result.content[0].text
+                logging.error(f"[DEBUG] [UTILS] Raw response: {response_text}")
                 outer_json_response = loads(response_text)
+                # Normalize response to a dictionary if it's a single-item list
+                if isinstance(outer_json_response, list) and len(outer_json_response) > 0:
+                    outer_json_response = outer_json_response[0]
                 
                 # Check for the structure with 'ok' and a nested 'data' field
-                if outer_json_response.get("ok") and "data" in outer_json_response:
+                if isinstance(outer_json_response, dict) and outer_json_response.get("ok") and "data" in outer_json_response:
                     data_payload = outer_json_response["data"]
                     if isinstance(data_payload, dict) and "data" in data_payload and isinstance(data_payload["data"], str):
                         # Case: Double-encoded JSON (data field contains a JSON string)
-                        return loads(data_payload["data"])
+                        try:
+                            decoded_data = loads(data_payload["data"])
+                            return decoded_data
+                        except:
+                            return data_payload["data"]
                     elif isinstance(data_payload, dict):
                         # Case: Data payload is a direct dictionary
                         return data_payload
