@@ -10,37 +10,32 @@ async def test_mcp():
     from utils import call_mcp_tool, MCP_STOCK_SERVER_URL
     print(f"--- Testing MCP Connection to {MCP_STOCK_SERVER_URL} ---")
     
-    symbols = ["0001", "KORPT038"]
-    tools = ["inquire_index_price", "inquire_index_daily_price", "inquire_daily_indexchartprice"]
+    # Testing the daily index price which usually returns lists
+    params = {
+        "fid_cond_mrkt_div_code": "U",
+        "fid_input_iscd": "KORPT038",
+        "fid_period_div_code": "D",
+        "fid_input_date_1": "20260402",
+        "tr_cont": ""
+    }
     
-    for tool in tools:
-        print(f"\n===== TESTING TOOL: {tool} =====")
-        for symbol in symbols:
-            params = {
-                "fid_cond_mrkt_div_code": "U",
-                "fid_input_iscd": symbol,
-                "tr_cont": ""
-            }
-            if tool == "inquire_index_daily_price":
-                params["fid_period_div_code"] = "D"
-            if tool == "inquire_daily_indexchartprice":
-                params["fid_period_div_code"] = "D"
-                # Add some more required params for chart if needed
-                params["fid_org_adj_prc"] = "0"
-            
-            print(f"\n--- Symbol: {symbol} ---")
-            try:
-                res = await call_mcp_tool(MCP_STOCK_SERVER_URL, "domestic_stock", tool, params)
-                print(f"RESULT: {res}")
-                
-                # Check for any non-zero price
-                if isinstance(res, dict):
-                    # Check list output (some daily tools return lists in 'output2')
-                    if 'output2' in res and isinstance(res['output2'], list) and len(res['output2']) > 0:
-                        top = res['output2'][0]
-                        print(f"Top Output2 Entry: {top}")
-            except Exception as e:
-                print(f"Error calling {tool} for {symbol}: {e}")
+    print(f"\n--- Deep Inspection of KORPT038 via inquire_index_daily_price ---")
+    try:
+        res = await call_mcp_tool(MCP_STOCK_SERVER_URL, "domestic_stock", "inquire_index_daily_price", params)
+        if isinstance(res, dict):
+            # Many KIS tools return list in output2
+            output_list = res.get('output2') or res.get('output') or []
+            if isinstance(output_list, list) and len(output_list) > 0:
+                print(f"Number of records found: {len(output_list)}")
+                # Print the first row in detail
+                first_row = output_list[0]
+                print(f"FIRST ROW FIELDS: {first_row.keys()}")
+                for k, v in first_row.items():
+                    print(f"  {k}: {v}")
+            else:
+                print(f"No list data found in response: {res}")
+    except Exception as e:
+        print(f"FAILED: {e}")
 
 if __name__ == "__main__":
     # Configure logging to see utils.py output

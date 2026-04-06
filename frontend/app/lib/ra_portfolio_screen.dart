@@ -205,7 +205,7 @@ class _RaPortfolioScreenState extends State<RaPortfolioScreen> with SingleTicker
             ],
           ),
           const SizedBox(height: 16),
-          _buildHelpItem('예상 수익률', '과거 데이터를 기반으로 계산된 연간 기대 수익률입니다.'),
+          _buildHelpItem('연간 예상 수익률', '과거 1년 데이터를 기반으로 시뮬레이션한 향후 1년간의 기대 수익률입니다.'),
           _buildHelpItem('변동성(위험)', '수익률이 얼마나 크게 출렁이는지를 나타내는 지표입니다. 낮을수록 안정적인 투자를 의미합니다.'),
           _buildHelpItem('샤프 지수 (Sharpe Ratio)', '위험 1단위당 얻는 초과 수익입니다. 수치가 높을수록 위험 대비 수익 효율이 좋은 포트폴리오입니다.'),
           _buildHelpItem('무위험 수익률', '원금이 보장되는 안전 자산(국고채 등)의 수익률입니다. 모든 투자의 성과를 비교하는 기준점이 됩니다.'),
@@ -245,7 +245,7 @@ class _RaPortfolioScreenState extends State<RaPortfolioScreen> with SingleTicker
       ),
       child: Row(
         children: [
-          _buildMetricItem('예상 수익률', '${returns.toStringAsFixed(2)}%', 
+          _buildMetricItem('연간 예상 수익률', '${returns.toStringAsFixed(2)}%', 
                            Icons.trending_up, Colors.greenAccent),
           _buildVerticalDivider(),
           _buildMetricItem('변동성(위험)', '${volatility.toStringAsFixed(2)}%', 

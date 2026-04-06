@@ -33,9 +33,22 @@ async def call_mcp_tool(server_url: str, tool_name: str, api_type: str, params: 
         try:
             async with Client(f"{server_url}/sse") as client:
                 result = await client.call_tool(tool_name, {"api_type": api_type, "params": params})
+                
+                # Check if result and result.content are valid
+                if not result or not hasattr(result, 'content') or not result.content:
+                    logging.error(f"MCP tool '{tool_name}' returned empty result.")
+                    return {}
+                
+                # Initialize to avoid UnboundLocalError
+                outer_json_response = {}
+                
                 response_text = result.content[0].text
-                logging.error(f"[DEBUG] [UTILS] Raw response: {response_text}")
-                outer_json_response = loads(response_text)
+                try:
+                    outer_json_response = loads(response_text)
+                except Exception as parse_err:
+                    logging.error(f"Failed to parse JSON from MCP tool '{tool_name}': {parse_err}. Response: {response_text}")
+                    return {}
+
                 # Normalize response to a dictionary if it's a single-item list
                 if isinstance(outer_json_response, list) and len(outer_json_response) > 0:
                     outer_json_response = outer_json_response[0]
@@ -45,22 +58,36 @@ async def call_mcp_tool(server_url: str, tool_name: str, api_type: str, params: 
                     data_payload = outer_json_response["data"]
                     if isinstance(data_payload, dict) and "data" in data_payload and isinstance(data_payload["data"], str):
                         # Case: Double-encoded JSON (data field contains a JSON string)
-                        try:
-                            decoded_data = loads(data_payload["data"])
-                            return decoded_data
-                        except:
-                            return data_payload["data"]
+                        # Extract JSON part from the string if present
+                        json_str = data_payload["data"]
+                        json_start = json_str.find('{')
+                        json_end = json_str.rfind('}')
+                        if json_start != -1 and json_end != -1 and json_end > json_start:
+                            json_str_clean = json_str[json_start : json_end + 1]
+                            try:
+                                decoded_data = loads(json_str_clean)
+                                return decoded_data
+                            except:
+                                logging.error(f"Failed to decode extracted JSON string: {json_str_clean}")
+                                return {}
+                        else:
+                            # If no curly braces found, maybe it's not JSON but a plain string in data?
+                            # For some tools, the data field itself IS the response
+                            return data_payload
                     elif isinstance(data_payload, dict):
                         # Case: Data payload is a direct dictionary
                         return data_payload
                     elif isinstance(data_payload, list):
                         # Case: Data payload is a list. Wrap it in a dictionary for consistency.
-                        logging.warning(f"MCP tool '{tool_name}' returned a list as direct data payload. Wrapping in 'data_list' key. Payload: {data_payload}")
                         return {"data_list": data_payload}
                 
+                # If the outer_json_response itself is the data (some tools return direct data)
+                if isinstance(outer_json_response, dict) and any(k in outer_json_response for k in ["output", "output1", "output2"]):
+                    return outer_json_response
+
                 # If 'ok' is false, or 'data' is missing/not as expected
                 logging.error(f"MCP tool '{tool_name}' returned unexpected response structure: {outer_json_response}")
-                raise ValueError("Unexpected response structure from MCP tool.")
+                return outer_json_response # Return as-is for the caller to handle if needed
 
         except Exception as e:
             logging.error(f"Error calling MCP tool '{tool_name}' on attempt {attempt + 1}: {e}")

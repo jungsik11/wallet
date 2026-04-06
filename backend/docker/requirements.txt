@@ -66,4 +66,4 @@ wcwidth==0.2.13
 websocket-client==1.8.0
 fastmcp
 yfinance
-finance-datareader
+finance-datareaderscipy

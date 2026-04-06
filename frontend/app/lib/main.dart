@@ -1,6 +1,4 @@
 import 'package:flutter/material.dart';
-
-
 import 'package:app/asset_status_screen.dart';
 import 'package:app/profit_screen.dart';
 import 'package:app/pension_screen.dart';

@@ -4,6 +4,7 @@ print("GLOBAL: App starting...")
 import logging
 logging.basicConfig(level=logging.ERROR, format='%(asctime)s [%(levelname)s] %(message)s')
 import asyncio
+import json
 from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Any, Dict, List, Optional
@@ -51,116 +52,70 @@ load_dotenv()
 app = FastAPI(title="Profit Calculation API")
 
 async def get_kr_risk_free_rate_v2() -> float:
-    import sys
-    sys.stdout.write("!!! FUNCTION ENTERED !!!\n")
-    print("!!! FUNCTION ENTERED !!!")
-    logging.error("!!! FUNCTION ENTERED !!!")
     """
     Fetches the current Korean 3-Year Treasury Bond yield.
     Priority 1: FRED Source (KORINT3YRT156N) - Most stable yield data.
     Priority 2: Investing.com (KR3YT=RR) - Includes fallback for Price data (e.g., 94.1).
     Validation: Must be in range 1.0% - 10.0%.
     """
-    logging.error("\n[DEBUG] --- Fetching KR Risk-Free Rate ---")
-    
     # 0. Source: KIS MCP (Primary - Official Real-time Data)
     try:
         from utils import call_mcp_tool, MCP_STOCK_SERVER_URL
         # KIS Domestic Indicator Symbol for 3Y KTB Yield: KORPT038
-        # fid_cond_mrkt_div_code: U (Index/Indicator)
         params = {
             "fid_cond_mrkt_div_code": "U",  # Indicators/Indices
             "fid_input_iscd": "KORPT038",    # KTB 3Y Yield symbol
             "tr_cont": ""                   # Required by KIS API
         }
-        print(f"[DEBUG] [KIS MCP] Requesting KORPT038 (3Y KTB Yield) via domestic_stock.inquire_index_price from {MCP_STOCK_SERVER_URL}", flush=True)
-        # Note: Using inquire_index_price as it's the correct tool for indicators in the MCP server
         res = await call_mcp_tool(MCP_STOCK_SERVER_URL, "domestic_stock", "inquire_index_price", params)
-        print(f"[DEBUG] [KIS MCP] Response for KORPT038: {res}", flush=True)
         
-        if isinstance(res, dict) and 'output' in res:
-            # Indicator price (yield) is in bstp_nmix_prpr for index prices
-            yield_str = res['output'].get('bstp_nmix_prpr') or res['output'].get('stck_prpr')
-            if yield_str:
-                rate_val = float(yield_str)
-                # KIS usually returns percentage (e.g., 3.38). Convert to decimal.
-                rate = rate_val / 100.0 if 0.1 <= rate_val <= 10.0 else rate_val
-                if 0.01 <= rate <= 0.10:
-                    print(f"[DEBUG] [KIS MCP] Successfully fetched yield: {rate:.4f} (Symbol: KORPT038)", flush=True)
-                    return rate
-                else:
-                    print(f"[DEBUG] [KIS MCP] Yield out of bounds: {rate_val}", flush=True)
-        elif isinstance(res, dict) and 'output1' in res: # Alternative KIS structure
-            yield_str = res['output1'].get('bstp_nmix_prpr') or res['output1'].get('stck_prpr')
-            if yield_str:
-                rate_val = float(yield_str)
-                rate = rate_val / 100.0 if 0.1 <= rate_val <= 10.0 else rate_val
-                if 0.01 <= rate <= 0.10:
-                    print(f"[DEBUG] [KIS MCP] Successfully fetched yield from output1: {rate:.4f}", flush=True)
-                    return rate
-        else:
-            keys_info = list(res.keys()) if isinstance(res, dict) else f"Not a dict (type: {type(res)})"
-            print(f"[DEBUG] [KIS MCP] No usable output returned for KORPT038. Info: {keys_info}, Res: {res}", flush=True)
-    except Exception as e:
-        print(f"[DEBUG] [KIS MCP] fetch failed: {str(e)}", flush=True)
-        import traceback
-        traceback.print_exc()
+        if isinstance(res, dict):
+            output = res.get('output') or res.get('output1')
+            if output:
+                # KIS Indicator price (yield) is typically in bstp_nmix_prpr for indices
+                yield_str = output.get('bstp_nmix_prpr') or output.get('stck_prpr')
+                if yield_str:
+                    rate_val = float(yield_str)
+                    # KIS usually returns percentage (e.g., 3.38). Convert to decimal.
+                    rate = rate_val / 100.0 if 0.1 <= rate_val <= 15.0 else rate_val
+                    if 0.005 <= rate <= 0.15:
+                        return rate
+            
+            # Additional check: handle direct data types if the MCP tool returns them differently
+            if 'bstp_nmix_prpr' in res:
+                rate_val = float(res['bstp_nmix_prpr'])
+                rate = rate_val / 100.0 if 0.1 <= rate_val <= 15.0 else rate_val
+                return rate
 
-    # 1. Source: FRED (Fallback 1)
+    except Exception as e:
+        logging.error(f"KIS MCP RF fetch failed: {str(e)}")
+
+    # 1. Source: FDR (Bank of Korea - Most Stable Local Source)
     try:
+        # KRV-3Y is the BOK 3-Year Treasury Bond Yield (typically stable in FDR)
+        df_bok = fdr.DataReader('KRV-3Y')
+        if df_bok is not None and not df_bok.empty:
+            rate_val = float(df_bok.iloc[-1]['Close'])
+            rate = rate_val / 100.0 if rate_val > 0.1 else rate_val
+            if 0.005 <= rate <= 0.15:
+                return rate
+    except Exception:
+        pass
+
+    # 2. Source: FRED (Global Fallback)
+    try:
+        # KORINT3YRT156N is the FRED code for S. Korea 3Y Bond Yield
         df_fred = fdr.DataReader('KORINT3YRT156N', data_source='fred')
         if df_fred is not None and not df_fred.empty:
-            raw_val = float(df_fred.iloc[-1].values[0])
-            # FRED usually provides percentage (e.g., 3.38)
+            raw_val = float(df_fred.iloc[-1].iloc[0])
             rate = raw_val / 100.0 if raw_val > 0.1 else raw_val
-            if 0.01 <= rate <= 0.10:
-                print(f"[DEBUG] [FRED] Successfully fetched yield: {rate:.4f} (Source: KORINT3YRT156N)")
+            if 0.005 <= rate <= 0.15:
                 return rate
-    except Exception as e:
-        print(f"[DEBUG] [FRED] Error: {e}")
-
-    # 2. Source: Investing.com (Supports Price-to-Yield calculation)
-    sources = [('KR3YT=RR', 'Investing.com'), ('KTB3Y', 'FDR-KTB')]
-    for code, name in sources:
-        try:
-            df = fdr.DataReader(code)
-            if df is not None and not df.empty:
-                latest_val = float(df.iloc[-1]['Close'])
-                print(f"[DEBUG] [{name}] Raw value from {code}: {latest_val}")
-
-                # CASE A: Price Data (e.g., 94.1)
-                # If the value is in the 80-120 range, it's a price. Calculate YTM.
-                if 80.0 <= latest_val <= 120.0:
-                    P = latest_val / 100.0 # Standardize to face value 1.0
-                    C = 0.01125 # Assumption: Benchmark Coupon 1.125%
-                    n = 2.6     # Assumption: Remaining maturity 2.6 years
-                    # YTM = (Coupon + (Par - Price)/Tenor) / ((Par + Price)/2)
-                    ytm = (C + (1.0 - P) / n) / ((1.0 + P) / 2.0)
-                    print(f"[DEBUG] [{name}] Detected Price {latest_val}. Calculated YTM: {ytm:.4f}")
-                    if 0.01 <= ytm <= 0.10:
-                        return ytm
-                
-                # CASE B: Yield Data (e.g., 3.38 or 338 bps)
-                candidate = 0.0
-                if latest_val > 200: # Basis Points
-                    candidate = latest_val / 10000.0
-                elif latest_val > 0.1: # Percentage
-                    candidate = latest_val / 100.0
-                else: # Decimal
-                    candidate = latest_val
-                
-                if 0.01 <= candidate <= 0.10:
-                    print(f"[DEBUG] [{name}] Accepted Yield: {candidate:.4f}")
-                    return candidate
-
-        except Exception as e:
-            print(f"[DEBUG] [{name}] Error fetching {code}: {e}")
-            continue
+    except Exception:
+        pass
 
     # Fallback: Current verified market yield
-    fallback_rate = 0.0338 
-    print(f"[DEBUG] [CONFIRM_CODE_VERSION_1] All sources failed. Using specific fallback: {fallback_rate:.4f}")
-    return fallback_rate
+    return 0.0338
 
 # --- Asset Helpers ---
 
@@ -1075,40 +1030,125 @@ async def get_ranking_charts():
     ranked_stocks = await get_ranked_stocks()
     return ranked_stocks
 
-@app.get("/screener/us-market-cap-ranking")
-async def get_us_market_cap_ranking():
+
+async def _get_us_market_cap_ranking(limit: int = 50):
+    """Fetches US market cap ranking from major exchanges."""
     unique_stocks_map: Dict[str, Dict[str, Any]] = {}
+    # We lower the start market cap to 100B (100,000,000 in thousands) to get a broader ranking
     for excd in ["NYS", "NAS", "AMS"]:
         params = {
             "auth": "",
             "excd": excd,
-            "co_yn_pricecur": "0", "co_st_pricecur": None, "co_en_pricecur": None,
-            "co_yn_rate": "0", "co_st_rate": None, "co_en_rate": None,
-            "co_yn_valx": "1", # Enable market cap filtering
-            "co_st_valx": "500000000", # Start market cap (500 billion USD, in thousands)
-            "co_en_valx": "9999999999999", # End market cap (a very large number)
-            "co_yn_shar": "0", "co_st_shar": None, "co_en_shar": None,
-            "co_yn_volume": "0", "co_st_volume": None, "co_en_volume": None,
-            "co_yn_amt": "0", "co_st_amt": None, "co_en_amt": None,
-            "co_yn_eps": "0", "co_st_eps": None, "co_en_eps": None,
-            "co_yn_per": "0", "co_st_per": None, "co_en_per": None,
+            "co_yn_pricecur": "0",
+            "co_yn_rate": "0",
+            "co_yn_valx": "1",
+            "co_st_valx": "100000000", # 100 billion USD
+            "co_en_valx": "99999999999",
             "keyb": ""
         }
         data = await call_mcp_tool(MCP_STOCK_SERVER_URL, "overseas_stock", "inquire_search", params)
+        
         if data and data.get("output2"):
-            items_found_for_exchange = 0
             for item in data["output2"]:
                 ticker = item.get("symb", "")
                 if ticker:
-                    # The 'valx' field from inquire_search is market cap in thousands
-                    item['market_cap'] = safe_float(item.get('valx', 0)) * 1000 # Convert to actual value
-                    unique_stocks_map[ticker] = item # Use ticker as key to ensure uniqueness
-                    items_found_for_exchange += 1
+                    # 'valx' is market cap in thousands
+                    mcap = safe_float(item.get('valx', 0)) * 1000
+                    item['market_cap'] = mcap
+                    # Use ticker as key for uniqueness across exchanges
+                    unique_stocks_map[ticker] = {
+                        "symbol": ticker,
+                        "name": item.get("name", ticker),
+                        "price": safe_float(item.get("last")),
+                        "diff": safe_float(item.get("diff")),
+                        "rate": safe_float(item.get("rate")),
+                        "market_cap": mcap,
+                        "market": excd,
+                        "currency": "USD"
+                    }
     
     all_stocks = list(unique_stocks_map.values())
-    # Sort by market_cap in descending order
     sorted_stocks = sorted(all_stocks, key=lambda x: x.get('market_cap', 0), reverse=True)
-    return sorted_stocks
+    return sorted_stocks[:limit]
+
+async def _get_kr_market_cap_ranking(limit: int = 50):
+    """Fetches KR market cap ranking using domestic_stock.inquire_ranking."""
+    params = {
+        "fid_cond_scr_no": "20173",
+        "fid_cond_mrkt_div_code": "J", # J: All market
+        "fid_input_iscd": "0000",      # 0000: All stocks
+        "fid_div_cls_code": "0",       # 0: All
+        "fid_rank_sort_cls_code": "0", # 0: Market Cap
+        "fid_etc_cls_code": "0"        # 0: All
+    }
+    data = await call_mcp_tool(MCP_STOCK_SERVER_URL, "domestic_stock", "inquire_ranking", params)
+    
+    ranked_stocks = []
+    if data and data.get("output", []):
+        for item in data["output"]:
+            # stck_avls is market cap in 100 million unit
+            mcap = safe_float(item.get("stck_avls")) * 100000000
+            ranked_stocks.append({
+                "symbol": item.get("mksc_shrn_iscd"),
+                "name": item.get("hts_kor_isnm"),
+                "price": safe_float(item.get("stck_prpr")),
+                "diff": safe_float(item.get("prdy_vrss")),
+                "rate": safe_float(item.get("prdy_ctrt")),
+                "market_cap": mcap,
+                "market": "KRX",
+                "currency": "KRW"
+            })
+    
+    return ranked_stocks[:limit]
+
+@app.get("/ranking/market-cap")
+async def get_market_cap_ranking(country: str = Query("ALL", description="US, KR, or ALL")):
+    if country == "US":
+        return {"US": await _get_us_market_cap_ranking()}
+    elif country == "KR":
+        return {"KR": await _get_kr_market_cap_ranking()}
+    else:
+        us_task = _get_us_market_cap_ranking()
+        kr_task = _get_kr_market_cap_ranking()
+        us_res, kr_res = await asyncio.gather(us_task, kr_task)
+        return {"US": us_res, "KR": kr_res}
+
+@app.get("/screener/us-market-cap-ranking")
+async def get_us_market_cap_ranking_endpoint():
+    return await _get_us_market_cap_ranking()
+
+@app.on_event("startup")
+async def update_us_1t_universe_file():
+    """
+    Fetches the US market cap ranking, filters for stocks with a market cap of $1 trillion or more,
+    and updates the us_stocks_1T_universe.csv file.
+    """
+    try:
+        logging.info("Updating US 1T universe file...")
+        ranked_stocks = await _get_us_market_cap_ranking()
+        
+        # Filter for stocks with market cap >= 1 Trillion
+        one_trillion = 1_000_000_000_000
+        filtered_stocks = [s for s in ranked_stocks if s.get('market_cap', 0) >= one_trillion]
+        
+        # Format data into CSV
+        csv_lines = ["Ticker,Name,MarketCap_Trillion"]
+        for stock in filtered_stocks:
+            ticker = stock.get("symb")
+            name = stock.get("name")
+            market_cap_trillion = stock.get("market_cap", 0) / one_trillion
+            csv_lines.append(f"{ticker},{name},{market_cap_trillion:.2f}")
+        
+        # Write to CSV file
+        csv_path = os.path.join(os.path.dirname(__file__), 'ra', 'us_stocks_1T_universe.csv')
+        with open(csv_path, 'w') as f:
+            f.write('\n'.join(csv_lines))
+            
+        logging.info(f"Successfully updated {csv_path} with {len(filtered_stocks)} stocks.")
+            
+    except Exception as e:
+        logging.error(f"Failed to update US 1T universe file: {e}")
+
 
 async def _perform_optimization(
     tickers: List[str],
@@ -1261,17 +1301,9 @@ async def get_recommended_portfolio():
 
     # Robust path resolution for Local vs Docker
     current_dir = os.path.dirname(os.path.abspath(__file__))
-    potential_ra_dirs = [
-        os.path.join(current_dir, "ra"), # Docker structure
-    ]
+    ra_dir = os.path.join(current_dir, "ra")
     
-    ra_dir = None
-    for d in potential_ra_dirs:
-        if os.path.exists(d) and os.path.isdir(d):
-            ra_dir = d
-            break
-            
-    if not ra_dir:
+    if not os.path.exists(ra_dir):
         logging.error(f"Universe data directory 'ra/' not found")
         raise HTTPException(status_code=500, detail="Universe data directory missing.")
 
@@ -1310,8 +1342,6 @@ async def get_recommended_portfolio():
         logging.error(f"Error in /ra/portfolio calculation: {str(e)}\n{traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Failed to generate recommended portfolio: {str(e)}")
 
-
-
 @app.get("/check_mcp_connectivity")
 async def check_mcp_connectivity():
     """
@@ -1322,8 +1352,6 @@ async def check_mcp_connectivity():
     # Check stock MCP server
     try:
         async with Client(f"{MCP_STOCK_SERVER_URL}/sse") as client:
-            # Attempt to make a dummy call or just connect
-            # A simple connection attempt is enough to check if the server is reachable
             results["stock_mcp_connectivity"] = "Connected"
     except Exception as e:
         results["stock_mcp_connectivity"] = f"Failed to connect: {e}"
@@ -1334,36 +1362,7 @@ async def check_mcp_connectivity():
         async with Client(f"{MCP_PENSION_SERVER_URL}/sse") as client:
             results["pension_mcp_connectivity"] = "Connected"
     except Exception as e:
-        results["pcp_mcp_connectivity"] = f"Failed to connect: {e}"
-        logging.error(f"Pension MCP connectivity check failed: {e}")
-
-    return results
-
-
-
-@app.get("/check_mcp_connectivity")
-async def check_mcp_connectivity():
-    """
-    Checks connectivity to the MCP stock and pension servers.
-    """
-    results = {}
-
-    # Check stock MCP server
-    try:
-        async with Client(f"{MCP_STOCK_SERVER_URL}/sse") as client:
-            # Attempt to make a dummy call or just connect
-            # A simple connection attempt is enough to check if the server is reachable
-            results["stock_mcp_connectivity"] = "Connected"
-    except Exception as e:
-        results["stock_mcp_connectivity"] = f"Failed to connect: {e}"
-        logging.error(f"Stock MCP connectivity check failed: {e}")
-
-    # Check pension MCP server
-    try:
-        async with Client(f"{MCP_PENSION_SERVER_URL}/sse") as client:
-            results["pension_mcp_connectivity"] = "Connected"
-    except Exception as e:
-        results["pcp_mcp_connectivity"] = f"Failed to connect: {e}"
+        results["pension_mcp_connectivity"] = f"Failed to connect: {e}"
         logging.error(f"Pension MCP connectivity check failed: {e}")
 
     return results
